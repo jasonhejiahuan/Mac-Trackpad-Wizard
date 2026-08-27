@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Private security report
-    url: https://github.com/jasonhejiahuan/Mac-Trackpad-Wizard/security/advisories/new
-    about: Report suspected vulnerabilities without exposing details publicly.
+  - name: Security contact
+    url: https://github.com/jasonhejiahuan
+    about: Arrange a private channel before sharing vulnerability details.
