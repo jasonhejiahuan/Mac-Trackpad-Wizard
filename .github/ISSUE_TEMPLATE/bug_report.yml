@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible Trackpad Wizard defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include exported touch sessions, addresses, serial-like identifiers, signing material, credentials, or other personal data.
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - System mode
+        - Enhanced mode
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include expected behavior and privacy-safe reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: List any checks or workarounds you tried.

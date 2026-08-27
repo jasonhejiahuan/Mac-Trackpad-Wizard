@@ -1,0 +1,32 @@
+.DS_Store
+/.build
+/dist
+/.swiftpm
+/.codex
+*.xcuserstate
+DerivedData/
+/Assets/TrackpadWizard.iconset/
+
+# Local IDE and workspace state
+.idea/
+*.code-workspace
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
+
+# Runtime exports and diagnostics may contain user data
+Exports/
+Diagnostics/
+*.trackpad-session.json
