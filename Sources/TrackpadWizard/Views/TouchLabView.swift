@@ -96,14 +96,16 @@ struct TouchLabView: View {
                     .frame(width: 330)
                 }
 
-                GlassCard(padding: 15) {
-                    InlineNotice(
-                        systemImage: model.enhancedTouchEnabled ? "exclamationmark.triangle" : "cursorarrow.motionlines",
-                        title: model.enhancedTouchEnabled ? "Private enhanced stream" : "Public AppKit surface",
-                        message: model.enhancedTouchEnabled
-                            ? "Raw touch runs globally for the selected device and exposes experimental contact geometry. Structure fields can change with macOS or firmware."
-                            : "Keep the pointer over the visual surface while testing. This is an AppKit rule; the app does not trap or move your pointer."
-                    )
+                if model.showInterfaceHints {
+                    GlassCard(padding: 15) {
+                        InlineNotice(
+                            systemImage: model.enhancedTouchEnabled ? "exclamationmark.triangle" : "cursorarrow.motionlines",
+                            title: model.enhancedTouchEnabled ? "Private enhanced stream" : "Public AppKit surface",
+                            message: model.enhancedTouchEnabled
+                                ? "Raw touch runs globally for the selected device and exposes experimental contact geometry. Structure fields can change with macOS or firmware."
+                                : "Keep the pointer over the visual surface while testing. This is an AppKit rule; the app does not trap or move your pointer."
+                        )
+                    }
                 }
             }
             .pageLayout()

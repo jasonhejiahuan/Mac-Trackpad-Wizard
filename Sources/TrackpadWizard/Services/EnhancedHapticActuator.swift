@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 
 /// Runtime-only access to the trackpad actuator. This is intentionally isolated
-/// behind a failable type so callers can always fall back to AppKit haptics.
+/// behind a failable type because private framework availability can change.
 @MainActor
 final class EnhancedHapticActuator {
     private typealias CreateFunction = @convention(c) (UInt64) -> UnsafeMutableRawPointer?
@@ -12,8 +12,8 @@ final class EnhancedHapticActuator {
         UnsafeMutableRawPointer,
         Int32,
         UInt32,
-        UInt32,
-        UInt32
+        Float,
+        Float
     ) -> Int32
     private typealias DeviceListFunction = @convention(c) () -> Unmanaged<CFArray>?
     private typealias DeviceIDFunction = @convention(c) (
@@ -130,17 +130,20 @@ final class EnhancedHapticActuator {
     }
 
     @discardableResult
-    func tick(_ feedback: HapticFeedbackKind) -> Bool {
+    func tick(_ feedback: HapticFeedbackKind, amplitude: Double) -> Bool {
+        let amplitude = Self.actuatorAmplitude(amplitude)
+        guard amplitude > 0 else { return true }
         refreshDevices()
         let actuators = targetActuators
         guard !actuators.isEmpty else { return false }
         return actuators.reduce(true) { result, actuator in
-            actuate(actuator, feedback.waveformID, 0, 0, 0) == 0 && result
+            actuate(actuator, feedback.waveformID, 0, amplitude, 1) == 0 && result
         }
     }
 
     @discardableResult
-    func startBuzz(_ feedback: HapticFeedbackKind, frequency: Double) -> Bool {
+    func startBuzz(_ feedback: HapticFeedbackKind, amplitude: Double, frequency: Double) -> Bool {
+        buzzer.stop()
         refreshDevices()
         let actuators = targetActuators
         guard !actuators.isEmpty else { return false }
@@ -148,6 +151,7 @@ final class EnhancedHapticActuator {
             actuators: actuators,
             actuate: actuate,
             waveformID: feedback.waveformID,
+            amplitude: Self.actuatorAmplitude(amplitude),
             frequency: min(max(frequency, 8), 120)
         )
         return true
@@ -182,32 +186,46 @@ final class EnhancedHapticActuator {
         }
     }
 
+    /// The private renderer accepts a floating-point multiplier and clamps it
+    /// internally to 0...2. Trackpad Wizard intentionally exposes the safer
+    /// normalized half of that range. A literal zero is a private-API legacy
+    /// sentinel, so callers skip actuation instead of passing it through.
+    private static func actuatorAmplitude(_ amplitude: Double) -> Float {
+        Float(HapticStep.clampedAmplitude(amplitude))
+    }
+
     private final class Buzzer: @unchecked Sendable {
         private let queue = DispatchQueue(label: "com.jasonstu.trackpadwizard.haptic-buzz", qos: .userInteractive)
         private var timer: DispatchSourceTimer?
         private var actuators: [UnsafeMutableRawPointer] = []
         private var actuate: ActuateFunction?
         private var waveformID: Int32 = 0
+        private var amplitude: Float = 0
 
         func start(
             actuators: [UnsafeMutableRawPointer],
             actuate: @escaping ActuateFunction,
             waveformID: Int32,
+            amplitude: Float,
             frequency: Double
         ) {
             queue.sync {
                 timer?.cancel()
+                timer = nil
                 self.actuators = actuators
                 self.actuate = actuate
                 self.waveformID = waveformID
+                self.amplitude = amplitude
+                guard amplitude > 0 else { return }
 
                 let timer = DispatchSource.makeTimerSource(queue: queue)
                 let interval = DispatchTimeInterval.nanoseconds(Int(1_000_000_000 / frequency))
                 timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
                 timer.setEventHandler { [weak self] in
                     guard let self, let actuate = self.actuate else { return }
+                    guard self.amplitude > 0 else { return }
                     for actuator in self.actuators {
-                        _ = actuate(actuator, self.waveformID, 0, 0, 0)
+                        _ = actuate(actuator, self.waveformID, 0, self.amplitude, 1)
                     }
                 }
                 self.timer = timer
@@ -221,6 +239,7 @@ final class EnhancedHapticActuator {
                 timer = nil
                 actuators.removeAll()
                 actuate = nil
+                amplitude = 0
             }
         }
     }

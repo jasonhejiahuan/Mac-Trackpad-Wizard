@@ -81,22 +81,24 @@ struct DevicesView: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    GlassCard(padding: 15) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            InlineNotice(
-                                systemImage: "eye.slash",
-                                title: "Deliberately omitted",
-                                message: "The device view does not surface Bluetooth addresses, serial-like registry values, or private actuator identifiers. They are unnecessary for diagnostics here."
-                            )
-                            Divider()
-                            InlineNotice(
-                                systemImage: "waveform.path.ecg.rectangle",
-                                title: "Live, not cached",
-                                message: "Battery, connection, Force Touch support, and report interval come from the current I/O Registry snapshot and may be absent when a device or transport does not report them."
-                            )
+                    if model.showInterfaceHints {
+                        GlassCard(padding: 15) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                InlineNotice(
+                                    systemImage: "eye.slash",
+                                    title: "Deliberately omitted",
+                                    message: "The device view does not surface Bluetooth addresses, serial-like registry values, or private actuator identifiers. They are unnecessary for diagnostics here."
+                                )
+                                Divider()
+                                InlineNotice(
+                                    systemImage: "waveform.path.ecg.rectangle",
+                                    title: "Live, not cached",
+                                    message: "Battery, connection, Force Touch support, and report interval come from the current I/O Registry snapshot and may be absent when a device or transport does not report them."
+                                )
+                            }
                         }
+                        .frame(width: 330)
                     }
-                    .frame(width: 330)
                 }
             }
             .pageLayout()

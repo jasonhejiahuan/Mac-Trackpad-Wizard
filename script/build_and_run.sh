@@ -6,8 +6,6 @@ APP_NAME="TrackpadWizard"
 DISPLAY_NAME="Trackpad Wizard"
 BUNDLE_ID="com.jasonstu.trackpadwizard"
 MIN_SYSTEM_VERSION="26.0"
-MARKETING_VERSION="${MARKETING_VERSION:-0.1.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-1}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -17,6 +15,19 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+
+VERSION_TAG="$(git -C "$ROOT_DIR" describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
+if [[ -n "$VERSION_TAG" ]]; then
+  MARKETING_VERSION="${VERSION_TAG#v}"
+else
+  MARKETING_VERSION="$(awk '/^## [0-9]+\.[0-9]+\.[0-9]+ / { print $2; exit }' "$ROOT_DIR/CHANGELOG.md")"
+fi
+BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
+
+if [[ -z "$MARKETING_VERSION" || -z "$BUILD_NUMBER" ]]; then
+  echo "Unable to derive bundle version from Git metadata and CHANGELOG.md" >&2
+  exit 1
+fi
 
 if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode-beta.app/Contents/Developer ]]; then
   export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer

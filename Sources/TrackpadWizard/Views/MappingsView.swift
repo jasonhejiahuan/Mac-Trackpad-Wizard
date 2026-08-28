@@ -46,22 +46,24 @@ struct MappingsView: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 14) {
-                    GlassCard(padding: 15) {
-                        InlineNotice(
-                            systemImage: "scope",
-                            title: "Input scope",
-                            message: model.enhancedTouchEnabled
-                                ? "Enhanced touch can recognize three-finger directional swipes while this app is running. Pinch, rotation, Force Click, and AppKit swipe events are tested on the app’s capture surfaces."
-                                : "Public AppKit gestures are delivered only over the Touch Lab and Gesture Studio surfaces. Enable Enhanced Touch for experimental global three-finger directional swipes."
-                        )
-                    }
-                    GlassCard(padding: 15) {
-                        InlineNotice(
-                            systemImage: "rectangle.on.rectangle.slash",
-                            title: "System gesture conflicts",
-                            message: "Mission Control, app switching, and other macOS gestures may consume the same input first. Trackpad Wizard does not rewrite your System Settings."
-                        )
+                if model.showInterfaceHints {
+                    HStack(alignment: .top, spacing: 14) {
+                        GlassCard(padding: 15) {
+                            InlineNotice(
+                                systemImage: "scope",
+                                title: "Input scope",
+                                message: model.enhancedTouchEnabled
+                                    ? "Enhanced touch can recognize three-finger directional swipes while this app is running. Pinch, rotation, Force Click, and AppKit swipe events are tested on the app’s capture surfaces."
+                                    : "Public AppKit gestures are delivered only over the Touch Lab and Gesture Studio surfaces. Enable Enhanced Touch for experimental global three-finger directional swipes."
+                            )
+                        }
+                        GlassCard(padding: 15) {
+                            InlineNotice(
+                                systemImage: "rectangle.on.rectangle.slash",
+                                title: "System gesture conflicts",
+                                message: "Mission Control, app switching, and other macOS gestures may consume the same input first. Trackpad Wizard does not rewrite your System Settings."
+                            )
+                        }
                     }
                 }
             }

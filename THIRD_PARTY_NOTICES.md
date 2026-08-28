@@ -2,6 +2,12 @@
 
 Trackpad Wizard does not vendor or link source code from the projects below. They were inspected as interoperability and implementation references.
 
+## HapticKey
+
+- Project: <https://github.com/niw/HapticKey>
+- License: MIT
+- Use: Private actuator floating-point ABI and compatibility behavior.
+
 ## mactic
 
 - Project: <https://github.com/MatMercer/mactic>

@@ -51,12 +51,14 @@ struct GestureStudioView: View {
                     VStack(spacing: 14) {
                         InteractiveTrackpadSurface(model: model)
 
-                        GlassCard(padding: 15) {
-                            InlineNotice(
-                                systemImage: "hand.draw",
-                                title: "Try it here",
-                                message: "Place the pointer over the surface, then pinch, rotate, swipe, scroll, or Force Click. Three-finger swipes are also derived from contact centroids when available."
-                            )
+                        if model.showInterfaceHints {
+                            GlassCard(padding: 15) {
+                                InlineNotice(
+                                    systemImage: "hand.draw",
+                                    title: "Try it here",
+                                    message: "Place the pointer over the surface, then pinch, rotate, swipe, scroll, or Force Click. Three-finger swipes are also derived from contact centroids when available."
+                                )
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity)

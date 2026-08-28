@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HapticsView: View {
     @Bindable var model: AppModel
-    @State private var showEnhancedConfirmation = false
     @State private var selectedStepID: UUID?
     @State private var isHoldingBuzz = false
 
@@ -13,7 +12,7 @@ struct HapticsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 PageHeader(
                     "Haptic Composer",
-                    subtitle: "Audition Apple’s system feedback or compose opt-in actuator waveforms."
+                    subtitle: "Shape amplitude, pulse frequency, and rhythm with the opt-in actuator engine."
                 ) {
                     HStack(spacing: 10) {
                         Button("Stop") {
@@ -29,20 +28,29 @@ struct HapticsView: View {
                             Label("Play Pattern", systemImage: "play.fill")
                         }
                         .buttonStyle(.glassProminent)
+                        .disabled(!engine.enhancedHapticsEnabled)
                     }
                 }
 
                 HStack(alignment: .top, spacing: 18) {
                     VStack(spacing: 14) {
-                        outputModeCard
+                        actuatorCard
                         presetCard
+                            .disabled(!engine.enhancedHapticsEnabled)
+                            .opacity(engine.enhancedHapticsEnabled ? 1 : 0.42)
                         composerCard
+                            .disabled(!engine.enhancedHapticsEnabled)
+                            .opacity(engine.enhancedHapticsEnabled ? 1 : 0.42)
                     }
                     .frame(maxWidth: .infinity)
 
                     VStack(spacing: 14) {
                         playbackCard
+                            .disabled(!engine.enhancedHapticsEnabled)
+                            .opacity(engine.enhancedHapticsEnabled ? 1 : 0.42)
                         continuousCard
+                            .disabled(!engine.enhancedHapticsEnabled)
+                            .opacity(engine.enhancedHapticsEnabled ? 1 : 0.42)
                         capabilityCard
                     }
                     .frame(width: 330)
@@ -54,67 +62,65 @@ struct HapticsView: View {
             engine.stopBuzz()
             isHoldingBuzz = false
         }
-        .alert("Enable Enhanced Haptics?", isPresented: $showEnhancedConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Enable for This Session") {
-                _ = engine.enableEnhancedMode()
-                model.statusMessage = engine.lastMessage
-            }
-        } message: {
-            Text("Enhanced mode loads Apple’s private MultitouchSupport actuator at runtime. It adds waveform selection and direct built-in/external routing, but is experimental, may change with macOS or trackpad firmware, and is not suitable for Mac App Store distribution.")
+        .onChange(of: model.continuousFeedback) { _, _ in
+            refreshHeldSignal()
+        }
+        .onChange(of: model.continuousAmplitude) { _, _ in
+            refreshHeldSignal()
+        }
+        .onChange(of: model.continuousFrequency) { _, _ in
+            refreshHeldSignal()
+        }
+        .onChange(of: engine.target) { _, _ in
+            refreshHeldSignal()
         }
     }
 
-    private var outputModeCard: some View {
+    private var actuatorCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Label("Output Engine", systemImage: "speaker.wave.2")
-                        .font(.headline)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Enhanced Haptics", systemImage: "waveform.badge.plus")
+                            .font(.headline)
+                        Text("Global direct-actuator output")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    StatusPill(
-                        text: engine.outputMode.title,
-                        systemImage: engine.outputMode == .enhanced ? "waveform.badge.plus" : "checkmark.shield",
-                        isActive: engine.outputMode == .enhanced
-                    )
-                }
-
-                HStack(spacing: 12) {
-                    OutputModeButton(
-                        title: "System",
-                        detail: "Public API · system routed",
-                        systemImage: "checkmark.shield",
-                        isSelected: engine.outputMode == .system
-                    ) {
-                        engine.useSystemMode()
-                        model.statusMessage = engine.lastMessage
-                    }
-                    OutputModeButton(
-                        title: "Enhanced",
-                        detail: "Private runtime · direct actuator",
-                        systemImage: "waveform.badge.plus",
-                        isSelected: engine.outputMode == .enhanced
-                    ) {
-                        if engine.outputMode != .enhanced {
-                            showEnhancedConfirmation = true
-                        }
-                    }
-                }
-
-                if engine.outputMode == .enhanced {
-                    Divider()
-                    Picker(
-                        "Play On",
-                        selection: Binding(
-                            get: { engine.target },
-                            set: { engine.target = $0 }
+                    Toggle(
+                        "Enhanced Haptics",
+                        isOn: Binding(
+                            get: { engine.enhancedHapticsEnabled },
+                            set: { setEnhancedHapticsEnabled($0) }
                         )
-                    ) {
-                        ForEach(HapticDeviceTarget.allCases) { target in
-                            Text(target.title).tag(target)
-                        }
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+
+                Text(
+                    engine.enhancedHapticsEnabled
+                        ? "All haptic features now use the enhanced actuator for this session."
+                        : "Haptic controls are unavailable. Turn on Enhanced Haptics to enable them."
+                )
+                .font(.caption)
+                .foregroundStyle(engine.enhancedHapticsEnabled ? .secondary : .tertiary)
+
+                Divider()
+                Picker(
+                    "Play On",
+                    selection: Binding(
+                        get: { engine.target },
+                        set: { engine.target = $0 }
+                    )
+                ) {
+                    ForEach(HapticDeviceTarget.allCases) { target in
+                        Text(target.title).tag(target)
                     }
                 }
+                .disabled(!engine.enhancedHapticsEnabled)
+                .opacity(engine.enhancedHapticsEnabled ? 1 : 0.42)
             }
         }
     }
@@ -186,6 +192,7 @@ struct HapticsView: View {
                             VStack(spacing: 5) {
                                 Image(systemName: step.isEnabled ? step.feedback.systemImage : "minus")
                                     .font(.body)
+                                    .opacity(step.isEnabled ? 0.35 + (step.amplitude * 0.65) : 1)
                                 Text("\(index + 1)")
                                     .font(.caption2.monospacedDigit())
                             }
@@ -212,15 +219,34 @@ struct HapticsView: View {
 
                 if let selectedIndex {
                     Divider()
-                    HStack(spacing: 18) {
-                        Toggle(
-                            "Pulse",
-                            isOn: Binding(
-                                get: { model.customHapticPattern.steps[selectedIndex].isEnabled },
-                                set: { model.customHapticPattern.steps[selectedIndex].isEnabled = $0 }
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 14) {
+                            Toggle(
+                                "Pulse",
+                                isOn: Binding(
+                                    get: { model.customHapticPattern.steps[selectedIndex].isEnabled },
+                                    set: { model.customHapticPattern.steps[selectedIndex].isEnabled = $0 }
+                                )
                             )
-                        )
-                        .toggleStyle(.switch)
+                            .toggleStyle(.switch)
+
+                            Spacer()
+                            Stepper(
+                                "Length \(model.customHapticPattern.steps[selectedIndex].length)",
+                                value: Binding(
+                                    get: { model.customHapticPattern.steps[selectedIndex].length },
+                                    set: { model.customHapticPattern.steps[selectedIndex].length = $0 }
+                                ),
+                                in: 1...4
+                            )
+                            .frame(width: 120)
+
+                            Button("Test") {
+                                let step = model.customHapticPattern.steps[selectedIndex]
+                                engine.playSingle(step.feedback, amplitude: step.amplitude)
+                            }
+                            .disabled(!model.customHapticPattern.steps[selectedIndex].isEnabled)
+                        }
 
                         Picker(
                             "Waveform",
@@ -235,20 +261,26 @@ struct HapticsView: View {
                         }
                         .disabled(!model.customHapticPattern.steps[selectedIndex].isEnabled)
 
-                        Stepper(
-                            "Length \(model.customHapticPattern.steps[selectedIndex].length)",
-                            value: Binding(
-                                get: { model.customHapticPattern.steps[selectedIndex].length },
-                                set: { model.customHapticPattern.steps[selectedIndex].length = $0 }
-                            ),
-                            in: 1...4
-                        )
-                        .frame(width: 120)
-
-                        Button("Test") {
-                            engine.playSingle(model.customHapticPattern.steps[selectedIndex].feedback)
+                        HStack(spacing: 12) {
+                            Text("Amplitude")
+                                .font(.subheadline)
+                            Slider(
+                                value: Binding(
+                                    get: { model.customHapticPattern.steps[selectedIndex].amplitude },
+                                    set: {
+                                        model.customHapticPattern.steps[selectedIndex].amplitude =
+                                            HapticStep.clampedAmplitude($0)
+                                    }
+                                ),
+                                in: HapticStep.amplitudeRange,
+                                step: 0.01
+                            )
+                            Text(amplitudeLabel(model.customHapticPattern.steps[selectedIndex].amplitude))
+                                .font(.caption.monospacedDigit())
+                                .frame(width: 42, alignment: .trailing)
                         }
                         .disabled(!model.customHapticPattern.steps[selectedIndex].isEnabled)
+
                     }
                 }
             }
@@ -279,20 +311,42 @@ struct HapticsView: View {
     private var continuousCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
-                Label("Hold to Vibrate", systemImage: "hand.tap")
+                Label("Custom Signal", systemImage: "waveform.path.ecg")
                     .font(.headline)
+                Text("Set amplitude and pulse frequency directly; no rhythm preset is involved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                Picker("Waveform", selection: $model.continuousFeedback) {
+                Picker("Impulse Shape", selection: $model.continuousFeedback) {
                     ForEach(HapticFeedbackKind.allCases) { feedback in
                         Text(feedback.title).tag(feedback)
                     }
                 }
-                Slider(value: $model.continuousFrequency, in: 8...120, step: 1) {
-                    Text("Pulse Rate")
-                } minimumValueLabel: {
-                    Text("8")
-                } maximumValueLabel: {
-                    Text("120 Hz")
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Amplitude")
+                        Spacer()
+                        Text(amplitudeLabel(model.continuousAmplitude))
+                            .monospacedDigit()
+                    }
+                    .font(.subheadline)
+                    Slider(
+                        value: $model.continuousAmplitude,
+                        in: HapticStep.amplitudeRange,
+                        step: 0.01
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Pulse Frequency")
+                        Spacer()
+                        Text("\(Int(model.continuousFrequency.rounded())) Hz")
+                            .monospacedDigit()
+                    }
+                    .font(.subheadline)
+                    Slider(value: $model.continuousFrequency, in: 8...120, step: 1)
                 }
 
                 Label(
@@ -310,10 +364,7 @@ struct HapticsView: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { _ in
                             guard !isHoldingBuzz else { return }
-                            isHoldingBuzz = engine.startBuzz(
-                                model.continuousFeedback,
-                                frequency: model.continuousFrequency
-                            )
+                            isHoldingBuzz = startCustomSignal()
                             if !isHoldingBuzz { model.statusMessage = engine.lastMessage }
                         }
                         .onEnded { _ in
@@ -321,10 +372,10 @@ struct HapticsView: View {
                             isHoldingBuzz = false
                         }
                 )
-                .disabled(engine.outputMode != .enhanced)
+                .disabled(!engine.enhancedAvailable)
 
-                if engine.outputMode != .enhanced {
-                    Text("Continuous pulses require Enhanced mode.")
+                if !engine.enhancedAvailable {
+                    Text("Enable enhanced haptics to send continuous pulses.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -333,14 +384,16 @@ struct HapticsView: View {
     }
 
     private var capabilityCard: some View {
-        GlassCard(padding: 15) {
-            InlineNotice(
-                systemImage: "info.circle",
-                title: "What “intensity” means here",
-                message: engine.outputMode == .system
-                    ? "Apple’s public API offers only Alignment, Level Change, and Generic patterns. macOS chooses the device and physical strength."
-                    : "Enhanced waveform IDs are empirical and firmware-dependent. The composer varies waveform, rhythm, and repetition—not actuator voltage."
-            )
+        Group {
+            if model.showInterfaceHints {
+                GlassCard(padding: 15) {
+                    InlineNotice(
+                        systemImage: "info.circle",
+                        title: "What “intensity” means here",
+                        message: "Enhanced amplitude is a near-stepless empirical waveform multiplier. Frequency controls pulse repetition, not the actuator’s carrier frequency; firmware still quantizes the physical result."
+                    )
+                }
+            }
         }
     }
 
@@ -348,41 +401,35 @@ struct HapticsView: View {
         guard let selectedStepID else { return nil }
         return model.customHapticPattern.steps.firstIndex { $0.id == selectedStepID }
     }
-}
 
-private struct OutputModeButton: View {
-    let title: String
-    let detail: String
-    let systemImage: String
-    let isSelected: Bool
-    let action: () -> Void
+    private func amplitudeLabel(_ amplitude: Double) -> String {
+        "\(Int((HapticStep.clampedAmplitude(amplitude) * 100).rounded()))%"
+    }
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 11) {
-                Image(systemName: systemImage)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(13)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .glassEffect(
-            isSelected ? .regular.interactive() : .regular,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+    private func startCustomSignal() -> Bool {
+        engine.startBuzz(
+            model.continuousFeedback,
+            amplitude: model.continuousAmplitude,
+            frequency: model.continuousFrequency
         )
+    }
+
+    private func refreshHeldSignal() {
+        guard isHoldingBuzz else { return }
+        if !startCustomSignal() {
+            isHoldingBuzz = false
+            model.statusMessage = engine.lastMessage
+        }
+    }
+
+    private func setEnhancedHapticsEnabled(_ isEnabled: Bool) {
+        if isEnabled {
+            _ = engine.enableEnhancedHaptics()
+        } else {
+            engine.disableEnhancedHaptics()
+            isHoldingBuzz = false
+        }
+        model.statusMessage = engine.lastMessage
     }
 }
 

@@ -26,7 +26,7 @@ enum AppSection: String, CaseIterable, Identifiable, Codable, Sendable {
         case .overview: "Status and quick actions"
         case .touchLab: "Contacts, trails, and heatmap"
         case .gestureStudio: "Inspect native gesture events"
-        case .haptics: "Compose system feedback pulses"
+        case .haptics: "Compose direct actuator waveforms"
         case .mappings: "Turn gestures into shortcuts"
         case .devices: "Live HID capabilities"
         }

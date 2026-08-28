@@ -103,9 +103,9 @@ struct OverviewView: View {
                     VStack(spacing: 14) {
                         QuickAction(
                             title: "Compose a haptic",
-                            detail: model.hapticEngine.outputMode == .enhanced
-                                ? "Enhanced waveform engine active"
-                                : "System-safe engine active",
+                            detail: model.hapticEngine.enhancedAvailable
+                                ? "Enhanced actuator active"
+                                : "Enhanced actuator not enabled",
                             systemImage: "waveform",
                             action: { model.selection = .haptics }
                         )
@@ -125,12 +125,14 @@ struct OverviewView: View {
                     .frame(width: 310)
                 }
 
-                GlassCard(padding: 15) {
-                    InlineNotice(
-                        systemImage: "lock.shield",
-                        title: "Local by design",
-                        message: "Touch frames, mappings, and exports stay on this Mac. Enhanced mode is optional, clearly labeled, and falls back to Apple’s public APIs."
-                    )
+                if model.showInterfaceHints {
+                    GlassCard(padding: 15) {
+                        InlineNotice(
+                            systemImage: "lock.shield",
+                            title: "Local by design",
+                            message: "Touch frames, mappings, and exports stay on this Mac. Enhanced touch and haptics are optional, clearly labeled, and active only for the current session."
+                        )
+                    }
                 }
             }
             .pageLayout()

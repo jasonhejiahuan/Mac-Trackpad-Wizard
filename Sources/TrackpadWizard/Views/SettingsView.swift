@@ -6,6 +6,13 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             Form {
+                Section("Interface") {
+                    Toggle("Show interface hints", isOn: $model.showInterfaceHints)
+                    Text("Shows descriptive lines in the Workspace sidebar and explanatory hint cards throughout the app.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Touch Lab") {
                     Toggle("Show resting contacts", isOn: $model.showRestingTouches)
                     LabeledContent("Default visualization") {
@@ -64,18 +71,11 @@ struct SettingsView: View {
                     LabeledContent("Enhanced Touch") {
                         Text(model.enhancedTouchEnabled ? "Active this session" : "Off")
                     }
-                    LabeledContent("Enhanced Haptics") {
-                        Text(model.hapticEngine.outputMode == .enhanced ? "Active this session" : "Off")
-                    }
-                    Text("These modes are never enabled automatically and are not persisted. They load private MultitouchSupport symbols at runtime, can break after system updates, and should be disabled for Mac App Store distribution.")
+                    Text("Enhanced Touch is never enabled automatically or persisted. It loads private MultitouchSupport symbols at runtime, can break after system updates, and should be disabled for Mac App Store distribution. Enhanced Haptics is controlled globally from Haptic Composer.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HStack {
-                        Button("Disable Enhanced Touch") { model.disableEnhancedTouch() }
-                            .disabled(!model.enhancedTouchEnabled)
-                        Button("Use System Haptics") { model.hapticEngine.useSystemMode() }
-                            .disabled(model.hapticEngine.outputMode == .system)
-                    }
+                    Button("Disable Enhanced Touch") { model.disableEnhancedTouch() }
+                        .disabled(!model.enhancedTouchEnabled)
                 }
             }
             .formStyle(.grouped)

@@ -50,6 +50,9 @@ final class AppModel {
 
     var enhancedTouchEnabled = false
     var touchTarget: HapticDeviceTarget = .external
+    var showInterfaceHints: Bool {
+        didSet { persistIfReady() }
+    }
     var showRestingTouches: Bool {
         didSet { persistIfReady() }
     }
@@ -67,7 +70,8 @@ final class AppModel {
         didSet { persistIfReady() }
     }
     var hapticTempo = 120.0
-    var continuousFeedback = HapticFeedbackKind.buzz
+    var continuousFeedback = HapticFeedbackKind.weakClick
+    var continuousAmplitude = 0.35
     var continuousFrequency = 80.0
 
     var statusMessage: String?
@@ -86,12 +90,14 @@ final class AppModel {
         static let mappings = "gestureMappings"
         static let mappingsEnabled = "mappingsEnabled"
         static let customHaptic = "customHapticPattern"
+        static let showInterfaceHints = "showInterfaceHints"
         static let showResting = "showRestingTouches"
     }
 
     init() {
         let defaults = UserDefaults.standard
         mappingsEnabled = defaults.bool(forKey: DefaultsKey.mappingsEnabled)
+        showInterfaceHints = defaults.object(forKey: DefaultsKey.showInterfaceHints) as? Bool ?? true
         showRestingTouches = defaults.object(forKey: DefaultsKey.showResting) as? Bool ?? true
         mappings = Self.decode([GestureMapping].self, from: defaults.data(forKey: DefaultsKey.mappings))
             ?? GestureMapping.defaults
@@ -400,6 +406,7 @@ final class AppModel {
         guard persistenceReady else { return }
         let defaults = UserDefaults.standard
         defaults.set(mappingsEnabled, forKey: DefaultsKey.mappingsEnabled)
+        defaults.set(showInterfaceHints, forKey: DefaultsKey.showInterfaceHints)
         defaults.set(showRestingTouches, forKey: DefaultsKey.showResting)
         defaults.set(Self.encode(mappings), forKey: DefaultsKey.mappings)
         defaults.set(Self.encode(customHapticPattern), forKey: DefaultsKey.customHaptic)

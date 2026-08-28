@@ -5,7 +5,11 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $model.selection, deviceCount: model.connectedTrackpadCount)
+            SidebarView(
+                selection: $model.selection,
+                deviceCount: model.connectedTrackpadCount,
+                showsHints: model.showInterfaceHints
+            )
                 .navigationSplitViewColumnWidth(min: 210, ideal: 238, max: 280)
         } detail: {
             detail
@@ -21,6 +25,20 @@ struct ContentView: View {
                             )
                         }
                         .help(model.isRecording ? "Stop the current recording" : "Record touch frames locally")
+                    }
+
+                    ToolbarSpacer(.fixed)
+
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            model.showInterfaceHints.toggle()
+                        } label: {
+                            Label(
+                                model.showInterfaceHints ? "Hide Interface Hints" : "Show Interface Hints",
+                                systemImage: model.showInterfaceHints ? "text.bubble.fill" : "text.bubble"
+                            )
+                        }
+                        .help(model.showInterfaceHints ? "Hide interface hints" : "Show interface hints")
                     }
 
                     ToolbarSpacer(.fixed)
