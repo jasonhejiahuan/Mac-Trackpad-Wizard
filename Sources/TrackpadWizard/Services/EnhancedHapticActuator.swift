@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Darwin
 
 /// Runtime-only access to the trackpad actuator. This is intentionally isolated
@@ -26,6 +27,7 @@ final class EnhancedHapticActuator {
         let identifier: UInt64
         let isBuiltIn: Bool
         let actuator: UnsafeMutableRawPointer
+        let counterIdentity: HapticCounterDevice
         var isPresent: Bool
     }
 
@@ -40,6 +42,7 @@ final class EnhancedHapticActuator {
     private var devices: [Device] = []
     private let buzzer = Buzzer()
     private var didShutDown = false
+    private var actuationObserver: (@Sendable (HapticCounterDevice) -> Void)?
 
     var target: HapticDeviceTarget = .all
 
@@ -75,9 +78,9 @@ final class EnhancedHapticActuator {
     }
 
     var summaries: [EnhancedTrackpadSummary] {
-        devices.enumerated().map { index, device in
+        devices.map { device in
             EnhancedTrackpadSummary(
-                id: "\(device.isBuiltIn ? "built-in" : "external")-\(index)",
+                id: device.counterIdentity.id,
                 isBuiltIn: device.isBuiltIn,
                 isPresent: device.isPresent
             )
@@ -104,7 +107,12 @@ final class EnhancedHapticActuator {
             guard getDeviceID(pointer, &identifier) == 0, identifier != 0 else { continue }
             found.append((identifier, deviceIsBuiltIn(pointer)))
         }
-        guard !found.isEmpty else { return }
+        guard !found.isEmpty else {
+            for index in devices.indices {
+                devices[index].isPresent = false
+            }
+            return
+        }
 
         let foundIdentifiers = Set(found.map(\.identifier))
         for index in devices.indices {
@@ -120,6 +128,10 @@ final class EnhancedHapticActuator {
                         identifier: candidate.identifier,
                         isBuiltIn: candidate.isBuiltIn,
                         actuator: actuator,
+                        counterIdentity: Self.counterIdentity(
+                            identifier: candidate.identifier,
+                            isBuiltIn: candidate.isBuiltIn
+                        ),
                         isPresent: true
                     )
                 )
@@ -134,27 +146,43 @@ final class EnhancedHapticActuator {
         let amplitude = Self.actuatorAmplitude(amplitude)
         guard amplitude > 0 else { return true }
         refreshDevices()
-        let actuators = targetActuators
-        guard !actuators.isEmpty else { return false }
-        return actuators.reduce(true) { result, actuator in
-            actuate(actuator, feedback.waveformID, 0, amplitude, 1) == 0 && result
+        let devices = targetDevices
+        guard !devices.isEmpty else { return false }
+        var allSucceeded = true
+        for device in devices {
+            if actuate(device.actuator, feedback.waveformID, 0, amplitude, 1) == 0 {
+                actuationObserver?(device.counterIdentity)
+            } else {
+                allSucceeded = false
+            }
         }
+        return allSucceeded
     }
 
     @discardableResult
     func startBuzz(_ feedback: HapticFeedbackKind, amplitude: Double, frequency: Double) -> Bool {
         buzzer.stop()
         refreshDevices()
-        let actuators = targetActuators
-        guard !actuators.isEmpty else { return false }
+        let devices = targetDevices
+        guard !devices.isEmpty else { return false }
         buzzer.start(
-            actuators: actuators,
+            targets: devices.map {
+                Buzzer.Target(actuator: $0.actuator, identity: $0.counterIdentity)
+            },
             actuate: actuate,
             waveformID: feedback.waveformID,
             amplitude: Self.actuatorAmplitude(amplitude),
-            frequency: min(max(frequency, 8), 120)
+            frequency: min(max(frequency, 8), 120),
+            observer: actuationObserver
         )
         return true
+    }
+
+    func setActuationObserver(
+        _ observer: (@Sendable (HapticCounterDevice) -> Void)?
+    ) {
+        actuationObserver = observer
+        buzzer.setObserver(observer)
     }
 
     func stopBuzz() {
@@ -173,17 +201,31 @@ final class EnhancedHapticActuator {
         dlclose(libraryHandle)
     }
 
-    private var targetActuators: [UnsafeMutableRawPointer] {
-        let present = devices.filter(\.isPresent)
-        let pool = present.isEmpty ? devices : present
+    private var targetDevices: [Device] {
+        let pool = devices.filter(\.isPresent)
         switch target {
         case .all:
-            return pool.map(\.actuator)
+            return pool
         case .builtIn:
-            return pool.filter(\.isBuiltIn).map(\.actuator)
+            return pool.filter(\.isBuiltIn)
         case .external:
-            return pool.filter { !$0.isBuiltIn }.map(\.actuator)
+            return pool.filter { !$0.isBuiltIn }
         }
+    }
+
+    private static func counterIdentity(
+        identifier: UInt64,
+        isBuiltIn: Bool
+    ) -> HapticCounterDevice {
+        let input = Data("Trackpad Wizard statistics|\(identifier)".utf8)
+        let digest = SHA256.hash(data: input)
+        let hash = digest.prefix(12).map { String(format: "%02x", $0) }.joined()
+        let suffix = hash.suffix(4).uppercased()
+        return HapticCounterDevice(
+            id: hash,
+            displayName: isBuiltIn ? "Built-in Trackpad" : "External Trackpad · \(suffix)",
+            isBuiltIn: isBuiltIn
+        )
     }
 
     /// The private renderer accepts a floating-point multiplier and clamps it
@@ -195,27 +237,35 @@ final class EnhancedHapticActuator {
     }
 
     private final class Buzzer: @unchecked Sendable {
-        private let queue = DispatchQueue(label: "com.jasonstu.trackpadwizard.haptic-buzz", qos: .userInteractive)
+        struct Target: @unchecked Sendable {
+            let actuator: UnsafeMutableRawPointer
+            let identity: HapticCounterDevice
+        }
+
+        private let queue = DispatchQueue(label: "cc.jasonstu.trackpadwizard.haptic-buzz", qos: .userInteractive)
         private var timer: DispatchSourceTimer?
-        private var actuators: [UnsafeMutableRawPointer] = []
+        private var targets: [Target] = []
         private var actuate: ActuateFunction?
         private var waveformID: Int32 = 0
         private var amplitude: Float = 0
+        private var observer: (@Sendable (HapticCounterDevice) -> Void)?
 
         func start(
-            actuators: [UnsafeMutableRawPointer],
+            targets: [Target],
             actuate: @escaping ActuateFunction,
             waveformID: Int32,
             amplitude: Float,
-            frequency: Double
+            frequency: Double,
+            observer: (@Sendable (HapticCounterDevice) -> Void)?
         ) {
             queue.sync {
                 timer?.cancel()
                 timer = nil
-                self.actuators = actuators
+                self.targets = targets
                 self.actuate = actuate
                 self.waveformID = waveformID
                 self.amplitude = amplitude
+                self.observer = observer
                 guard amplitude > 0 else { return }
 
                 let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -224,8 +274,10 @@ final class EnhancedHapticActuator {
                 timer.setEventHandler { [weak self] in
                     guard let self, let actuate = self.actuate else { return }
                     guard self.amplitude > 0 else { return }
-                    for actuator in self.actuators {
-                        _ = actuate(actuator, self.waveformID, 0, self.amplitude, 1)
+                    for target in self.targets {
+                        if actuate(target.actuator, self.waveformID, 0, self.amplitude, 1) == 0 {
+                            self.observer?(target.identity)
+                        }
                     }
                 }
                 self.timer = timer
@@ -237,9 +289,15 @@ final class EnhancedHapticActuator {
             queue.sync {
                 timer?.cancel()
                 timer = nil
-                actuators.removeAll()
+                targets.removeAll()
                 actuate = nil
                 amplitude = 0
+            }
+        }
+
+        func setObserver(_ observer: (@Sendable (HapticCounterDevice) -> Void)?) {
+            queue.sync {
+                self.observer = observer
             }
         }
     }

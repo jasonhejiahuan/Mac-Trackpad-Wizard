@@ -10,32 +10,40 @@ The interface targets macOS 26 or later and uses the current system Liquid Glass
 
 ## What it does
 
-- **Touch Lab** — live contacts, resting touches, stable contact labels, trails, a monochrome heatmap, sample-rate estimates, Force Click pressure, and JSON session export.
+- **Touch Lab** — live contacts, resting touches, stable contact labels, configurable trails and heatmap decay, display-calibrated physical sizing, a resizable/full-screen preview, sample-rate estimates, Force Click pressure, and JSON session export.
 - **Gesture Studio** — live magnification, rotation, precision scrolling, swipes, pressure stages, gesture lifecycle events, and derived three-finger directions.
-- **Haptic Composer** — system-safe feedback, empirical actuator waveforms, per-pulse near-stepless amplitude, device routing, amplitude-shaped presets, a 16-step pattern editor, and a custom 8–120 Hz press-and-hold signal.
+- **Haptic Composer** — empirical actuator waveforms, per-pulse near-stepless amplitude, device routing, amplitude-shaped presets, a 16-step editor, a custom 8–120 Hz press-and-hold signal, and a versioned pattern library with click recording plus JSON import/export.
 - **Mappings** — map swipes, pinches, rotation, or Force Click to keyboard shortcuts or haptic patterns. Shortcut capture uses native key events; keyboard injection is gated behind explicit Accessibility permission.
+- **Statistics** — exact successful actuator-call counts, separated by a locally pseudonymized trackpad identifier, with daily graphs, lifetime totals, collection controls, and reset.
 - **Devices** — live I/O Registry discovery, transport, battery when reported, Force Touch capability, report interval/rate, USB VID/PID, and current user trackpad preferences.
+- **Advanced Features** — separately gated experimental surface orientation and system-haptic controls with per-change confirmation and a 10-second automatic rollback.
 - **Privacy boundaries** — no Bluetooth address, serial-like value, or private actuator identifier is displayed or exported. Touch data remains local unless the user explicitly exports a session.
 
 ## Public and enhanced modes
 
 | Capability | System mode | Enhanced mode |
 | --- | --- | --- |
-| Haptic API | `NSHapticFeedbackManager` | Runtime-loaded `MultitouchSupport.framework` actuator |
-| Available patterns | Alignment, Level Change, Generic | Empirical waveform IDs 1–6, 15, and 16 |
-| Amplitude | Chosen by macOS | Normalized 0–100% empirical waveform multiplier |
-| Frequency | Not exposed | Direct 8–120 Hz pulse-repetition control |
-| Routing | Chosen by macOS | All, built-in, or external trackpad |
+| Haptic API | Direct actuator output off | Runtime-loaded `MultitouchSupport.framework` actuator |
+| Available patterns | None sent by this app | Empirical waveform IDs 1–6, 15, and 16 |
+| Amplitude | Not applicable | Normalized 0–100% empirical waveform multiplier |
+| Frequency | Not applicable | Direct 8–120 Hz pulse-repetition control |
+| Routing | Not applicable | All, built-in, or external trackpad |
 | Touch input | `NSTouch` while the pointer is over the capture surface | Raw contact callback for one selected device |
 | Pressure | AppKit pressure and Force Click stage | Contact area proxy plus cumulative-pressure field |
 | Distribution | Uses public API | Private API; not appropriate for the Mac App Store |
-| Persistence | Normal app setting | Opt-in for the current process only |
+| Persistence | Public touch remains available | Opt-in for the current process only; never restored on launch |
 
-Apple’s public haptic API deliberately does not expose strength, duration, arbitrary waveform, or device targeting. System mode therefore cannot honor a composed amplitude. Enhanced mode uses the private actuator call’s floating-point waveform multiplier for close-to-stepless amplitude and schedules impulses at the selected pulse frequency. That frequency is repetition rate, not arbitrary control of the actuator’s internal carrier; the hardware still renders an empirical base waveform and quantizes the physical result.
+Apple’s public haptic API deliberately does not expose strength, duration, arbitrary waveform, or device targeting. Trackpad Wizard therefore keeps direct actuator playback behind one global **Enhanced Mode** switch. Enhanced Mode also enables raw touch; the target picker applies to both services. It uses the private actuator call’s floating-point waveform multiplier for close-to-stepless amplitude and schedules impulses at the selected pulse frequency. That frequency is repetition rate, not arbitrary control of the actuator’s internal carrier; the hardware still renders an empirical base waveform and quantizes the physical result.
 
 The presets now use amplitude envelopes rather than relying only on coarse strong/medium/weak waveform changes. **Quiet Click** is intentionally restrained and inspired by the feel of macOS Silent Clicking, but it does not modify the system’s trackpad preference and is not claimed to be Apple’s exact private tuning.
 
-If explicit enhanced routing targets an unavailable built-in or external trackpad, Trackpad Wizard does not silently actuate another device. “All Trackpads” may fall back to the system performer if the private call fails.
+If explicit enhanced routing targets an unavailable built-in or external trackpad, Trackpad Wizard does not silently actuate another device. Enhanced Mode is off after every launch and always stops during app termination. By default it also stops as soon as the app becomes inactive; that background behavior can be changed in Settings.
+
+The optional system-gesture filter is process-scoped and requires Accessibility. It never edits macOS trackpad preferences, so the operating system removes it automatically after a crash or force-quit. It filters gesture events and continuous scrolling; while the enhanced stream reports three or more active contacts, it also filters the generated left-button drag sequence. A simultaneous physical mouse drag may therefore be paused until those contacts end.
+
+Advanced Features are exposed only by separate Experimental Settings flags. Surface Orientation uses `MTDeviceSetSurfaceOrientation` for native 0°/180° operation; because the available private runtime accepts only those native orientations, 90°/270° are clearly labeled as Trackpad Wizard coordinate rotations. System Haptic Feedback uses `MTActuatorSetSystemActuationsEnabled`. Every change captures its pre-change state, opens a 10-second recovery dialog, restores automatically unless Continue is chosen, and records a default-recovery marker until normal cleanup succeeds.
+
+The portable haptic schema is documented in [`docs/HAPTIC_PATTERN_STANDARD.md`](docs/HAPTIC_PATTERN_STANDARD.md).
 
 ## Build and run
 
@@ -59,20 +67,13 @@ Useful variants:
 ./script/check.sh
 ```
 
-The runner selects `/Applications/Xcode-beta.app` first when `DEVELOPER_DIR` is unset, assembles `dist/Trackpad Wizard.app`, and uses a local Apple Development signing identity when available. Otherwise it uses ad-hoc signing. A Codex Run action is included in `.codex/environments/environment.toml`.
+The runner selects `/Applications/Xcode-beta.app` first when `DEVELOPER_DIR` is unset, builds through the Xcode project, and copies the Xcode-managed Debug product to `dist/Trackpad Wizard.app`. It requires the configured Apple Development team rather than choosing an arbitrary local certificate or falling back to ad-hoc signing; this keeps the app identity stable for development permissions. A Codex Run action is included in `.codex/environments/environment.toml`.
 
-Signing can be selected explicitly without storing identity data in the repository:
-
-```sh
-SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" \
-./script/build_and_run.sh --verify
-```
-
-The bundle version is automatic: the latest `vX.Y.Z` Git tag is used when present, otherwise the newest version in `CHANGELOG.md` is used. The Git commit count becomes the bundle build number.
+The bundle version is automatic: Xcode reads `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from the project. The About window reads the resulting bundle metadata at runtime, so it changes with the version code rather than hard-coding a display string.
 
 The assembled app is signed with hardened runtime enabled and then checked with `codesign --verify --deep --strict`. Local Development signing is suitable for development and testing. Public distribution additionally requires a Developer ID archive, secure timestamping, notarization, and stapling; those credentials are deliberately not part of this repository.
 
-`script/check.sh` uses the same Xcode selection logic, runs all tests, and performs an optimized Release build.
+`script/check.sh` uses the same Xcode selection logic, runs SwiftPM and Xcode tests, performs an optimized Xcode Release build, and verifies that the resulting app is signed by Apple Development.
 
 Regenerate the editable neutral icon with:
 
@@ -82,7 +83,7 @@ Regenerate the editable neutral icon with:
 
 ## Permission behavior
 
-Trackpad Wizard never opens a permission prompt during model initialization or before the main window appears. Accessibility is requested only from the user-facing **Request Access…** button and is needed only to post keyboard shortcuts. Touch inspection, device diagnostics, and haptic playback do not require Accessibility.
+Trackpad Wizard never opens a permission prompt during model initialization or before the main window appears. Accessibility is requested only from the user-facing **Request Access…** button and is needed to post keyboard shortcuts or run the optional process-scoped gesture filter. Touch inspection, device diagnostics, haptic playback, and vibration statistics do not require Accessibility.
 
 ## Research basis
 
@@ -108,7 +109,8 @@ No code from either GPL driver is included. See `THIRD_PARTY_NOTICES.md` for the
 
 - AppKit indirect touches are view-scoped by design; keep the pointer over a capture surface.
 - Enhanced touch streams one selected device because raw callbacks do not provide a public, stable aggregation layer.
-- macOS may consume system gestures such as Mission Control before an app receives them.
+- macOS may consume system gestures such as Mission Control before an app receives them unless the optional process-scoped filter can intercept that event type.
+- Display-calibrated physical sizing depends on monitor EDID/physical-size reporting and may be approximate on displays that publish inaccurate dimensions.
 - Private framework symbols, contact layouts, and waveform meanings can change without notice.
 - Enhanced amplitude and pulse frequency are empirical controls; output resolution and feel vary by trackpad hardware and firmware.
 - The project is intentionally unsandboxed for local experimentation. A public-only distribution build should remove the two enhanced service files and expose only System mode.

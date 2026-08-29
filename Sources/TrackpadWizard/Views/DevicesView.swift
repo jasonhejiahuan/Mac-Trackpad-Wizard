@@ -46,7 +46,7 @@ struct DevicesView: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 18) {
+                AdaptiveColumnsLayout(breakpoint: 880, spacing: 18, trailingWidth: 330) {
                     GlassCard {
                         VStack(alignment: .leading, spacing: 14) {
                             HStack {
@@ -67,8 +67,13 @@ struct DevicesView: View {
                                         GridRow {
                                             Text(setting.title)
                                                 .foregroundStyle(.secondary)
-                                            Text(setting.value)
+                                            Label(setting.value, systemImage: setting.indicator.systemImage)
                                                 .fontWeight(.medium)
+                                                .foregroundStyle(
+                                                    setting.indicator == .enabled
+                                                        ? AnyShapeStyle(.green)
+                                                        : AnyShapeStyle(.primary)
+                                                )
                                                 .gridColumnAlignment(.trailing)
                                         }
                                         if setting.id != model.trackpadSettings.last?.id {
@@ -79,25 +84,27 @@ struct DevicesView: View {
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity)
 
-                    if model.showInterfaceHints {
-                        GlassCard(padding: 15) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                InlineNotice(
-                                    systemImage: "eye.slash",
-                                    title: "Deliberately omitted",
-                                    message: "The device view does not surface Bluetooth addresses, serial-like registry values, or private actuator identifiers. They are unnecessary for diagnostics here."
-                                )
-                                Divider()
-                                InlineNotice(
-                                    systemImage: "waveform.path.ecg.rectangle",
-                                    title: "Live, not cached",
-                                    message: "Battery, connection, Force Touch support, and report interval come from the current I/O Registry snapshot and may be absent when a device or transport does not report them."
-                                )
+                    Group {
+                        if model.showInterfaceHints {
+                            GlassCard(padding: 15) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    InlineNotice(
+                                        systemImage: "eye.slash",
+                                        title: "Deliberately omitted",
+                                        message: "The device view does not surface Bluetooth addresses, serial-like registry values, or private actuator identifiers. They are unnecessary for diagnostics here."
+                                    )
+                                    Divider()
+                                    InlineNotice(
+                                        systemImage: "waveform.path.ecg.rectangle",
+                                        title: "Live, not cached",
+                                        message: "Battery, connection, Force Touch support, and report interval come from the current I/O Registry snapshot and may be absent when a device or transport does not report them."
+                                    )
+                                }
                             }
+                        } else {
+                            Color.clear.frame(height: 1)
                         }
-                        .frame(width: 330)
                     }
                 }
             }
@@ -122,7 +129,7 @@ private struct DeviceCard: View {
         GlassCard {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 13) {
-                    Image(systemName: device.isBuiltIn ? "laptopcomputer" : "rectangle.connected.to.line.below")
+                    Image(systemName: "rectangle.fill")
                         .font(.system(size: 28, weight: .light))
                         .foregroundStyle(.secondary)
                         .frame(width: 38)
@@ -174,6 +181,9 @@ private struct DeviceCard: View {
     }
 
     private var usbIdentity: String {
+        if device.isBuiltIn {
+            return "Internal"
+        }
         guard let vendorID = device.vendorID,
               let productID = device.productID,
               vendorID > 0,

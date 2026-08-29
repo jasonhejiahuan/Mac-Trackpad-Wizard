@@ -20,11 +20,14 @@ struct OverviewView: View {
                 }
 
                 GlassEffectContainer(spacing: 14) {
-                    HStack(spacing: 14) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 210), spacing: 14)],
+                        spacing: 14
+                    ) {
                         MetricTile(
                             title: "Trackpads",
                             value: "\(model.connectedTrackpadCount)",
-                            systemImage: "rectangle.connected.to.line.below",
+                            systemImage: TrackpadSymbols.device(enhanced: model.enhancedModeEnabled),
                             detail: model.externalTrackpadCount > 0
                                 ? "\(model.externalTrackpadCount) external"
                                 : "Built-in only"
@@ -52,7 +55,7 @@ struct OverviewView: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 18) {
+                AdaptiveColumnsLayout(breakpoint: 900, spacing: 18, trailingWidth: 310) {
                     GlassCard {
                         VStack(alignment: .leading, spacing: 18) {
                             HStack {
@@ -98,7 +101,6 @@ struct OverviewView: View {
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity)
 
                     VStack(spacing: 14) {
                         QuickAction(
@@ -122,7 +124,6 @@ struct OverviewView: View {
                             action: { model.selection = .devices }
                         )
                     }
-                    .frame(width: 310)
                 }
 
                 if model.showInterfaceHints {
@@ -130,7 +131,7 @@ struct OverviewView: View {
                         InlineNotice(
                             systemImage: "lock.shield",
                             title: "Local by design",
-                            message: "Touch frames, mappings, and exports stay on this Mac. Enhanced touch and haptics are optional, clearly labeled, and active only for the current session."
+                            message: "Touch frames, mappings, statistics, and exports stay on this Mac. Enhanced Mode is optional, clearly labeled, and never restored automatically after launch."
                         )
                     }
                 }

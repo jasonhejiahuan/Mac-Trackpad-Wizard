@@ -136,6 +136,8 @@ final class PrivateTouchMonitor {
     var isAvailable = false
     var isStreaming = false
     var activeDeviceTitle = "No enhanced device"
+    var activeSurfaceWidthMM: Double?
+    var activeSurfaceHeightMM: Double?
     var lastError: String?
 
     @ObservationIgnored private var libraryHandle: UnsafeMutableRawPointer?
@@ -179,6 +181,8 @@ final class PrivateTouchMonitor {
 
         activeDevice = selected
         activeDeviceTitle = selected.isBuiltIn ? "Built-in Trackpad" : "External Trackpad"
+        activeSurfaceWidthMM = selected.widthMM
+        activeSurfaceHeightMM = selected.heightMM
         self.onFrame = onFrame
         lastSequence = 0
         registerCallback(selected.pointer, privateContactCallback)
@@ -209,6 +213,8 @@ final class PrivateTouchMonitor {
         activeDevice = nil
         isStreaming = false
         activeDeviceTitle = "No enhanced device"
+        activeSurfaceWidthMM = nil
+        activeSurfaceHeightMM = nil
     }
 
     func availableDeviceTargets() -> [HapticDeviceTarget] {
@@ -288,9 +294,9 @@ final class PrivateTouchMonitor {
     private func selectDevice(for target: HapticDeviceTarget) -> Device? {
         switch target {
         case .builtIn:
-            devices.first(where: \.isBuiltIn) ?? devices.first
+            devices.first(where: \.isBuiltIn)
         case .external:
-            devices.first(where: { !$0.isBuiltIn }) ?? devices.first
+            devices.first(where: { !$0.isBuiltIn })
         case .all:
             devices.first(where: { !$0.isBuiltIn }) ?? devices.first
         }

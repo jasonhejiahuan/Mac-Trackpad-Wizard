@@ -6,6 +6,8 @@ enum AppSection: String, CaseIterable, Identifiable, Codable, Sendable {
     case gestureStudio
     case haptics
     case mappings
+    case advanced
+    case statistics
     case devices
 
     var id: Self { self }
@@ -17,6 +19,8 @@ enum AppSection: String, CaseIterable, Identifiable, Codable, Sendable {
         case .gestureStudio: "Gesture Studio"
         case .haptics: "Haptic Composer"
         case .mappings: "Mappings"
+        case .advanced: "Advanced Features"
+        case .statistics: "Statistics"
         case .devices: "Devices"
         }
     }
@@ -28,6 +32,8 @@ enum AppSection: String, CaseIterable, Identifiable, Codable, Sendable {
         case .gestureStudio: "Inspect native gesture events"
         case .haptics: "Compose direct actuator waveforms"
         case .mappings: "Turn gestures into shortcuts"
+        case .advanced: "Enabled experimental controls"
+        case .statistics: "Persistent per-device haptic counts"
         case .devices: "Live HID capabilities"
         }
     }
@@ -39,7 +45,9 @@ enum AppSection: String, CaseIterable, Identifiable, Codable, Sendable {
         case .gestureStudio: "waveform.path"
         case .haptics: "waveform"
         case .mappings: "command"
-        case .devices: "rectangle.connected.to.line.below"
+        case .advanced: "slider.horizontal.3"
+        case .statistics: "chart.xyaxis.line"
+        case .devices: "rectangle.fill"
         }
     }
 
@@ -50,7 +58,9 @@ enum AppSection: String, CaseIterable, Identifiable, Codable, Sendable {
         case .gestureStudio: "3"
         case .haptics: "4"
         case .mappings: "5"
-        case .devices: "6"
+        case .advanced: "6"
+        case .statistics: "7"
+        case .devices: "8"
         }
     }
 }

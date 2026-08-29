@@ -2,7 +2,7 @@ import SwiftUI
 
 struct TouchLabView: View {
     @Bindable var model: AppModel
-    @State private var showEnhancedConfirmation = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
@@ -14,52 +14,31 @@ struct TouchLabView: View {
                     HStack(spacing: 10) {
                         StatusPill(
                             text: model.latestTouchSource.title,
-                            systemImage: model.enhancedTouchEnabled ? "waveform.badge.plus" : "checkmark.shield",
-                            isActive: model.enhancedTouchEnabled
+                            systemImage: TrackpadSymbols.device(enhanced: model.enhancedModeEnabled),
+                            isActive: model.enhancedModeEnabled
                         )
-                        Button(model.enhancedTouchEnabled ? "Use AppKit" : "Enable Enhanced…") {
-                            if model.enhancedTouchEnabled {
-                                model.disableEnhancedTouch()
-                            } else {
-                                showEnhancedConfirmation = true
-                            }
+                        Button {
+                            openWindow(id: "touch-preview")
+                        } label: {
+                            Label("Open Large Preview", systemImage: "arrow.up.left.and.arrow.down.right")
                         }
                     }
                 }
 
-                HStack(spacing: 12) {
-                    Picker("Visualization", selection: $model.visualizationMode) {
-                        ForEach(TouchVisualizationMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 360)
+                TouchPreviewControls(model: model, showsRestingTouches: true)
 
-                    Spacer()
-
-                    Toggle("Resting Touches", isOn: $model.showRestingTouches)
-                        .toggleStyle(.switch)
-
-                    if model.enhancedTouchEnabled {
-                        Picker("Device", selection: $model.touchTarget) {
-                            ForEach(HapticDeviceTarget.allCases) { target in
-                                Text(target.title).tag(target)
-                            }
-                        }
-                        .frame(width: 190)
-                        .onChange(of: model.touchTarget) {
-                            model.restartEnhancedTouchIfNeeded()
-                        }
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 18) {
+                AdaptiveColumnsLayout(
+                    breakpoint: model.touchSurfaceSizeMode == .enlarged ? 1_100 : 860,
+                    spacing: 18,
+                    trailingWidth: 330
+                ) {
                     VStack(spacing: 14) {
                         InteractiveTrackpadSurface(model: model)
 
-                        HStack(spacing: 12) {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 170), spacing: 12)],
+                            spacing: 12
+                        ) {
                             MetricTile(
                                 title: "Contacts",
                                 value: "\(model.activeContactCount)",
@@ -84,7 +63,6 @@ struct TouchLabView: View {
                             )
                         }
                     }
-                    .frame(maxWidth: .infinity)
 
                     VStack(spacing: 14) {
                         sessionCard
@@ -93,7 +71,6 @@ struct TouchLabView: View {
                             enhancedGeometryCard(contact)
                         }
                     }
-                    .frame(width: 330)
                 }
 
                 if model.showInterfaceHints {
@@ -109,14 +86,6 @@ struct TouchLabView: View {
                 }
             }
             .pageLayout()
-        }
-        .alert("Enable Enhanced Touch?", isPresented: $showEnhancedConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Enable for This Session") {
-                _ = model.enableEnhancedTouch()
-            }
-        } message: {
-            Text("This opt-in mode loads Apple’s private MultitouchSupport framework at runtime. It enables global raw contacts and pressure proxies, but may break after a macOS update and is not suitable for a Mac App Store build.")
         }
     }
 

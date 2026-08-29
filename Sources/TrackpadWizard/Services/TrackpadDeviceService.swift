@@ -34,7 +34,7 @@ struct TrackpadDeviceService {
             }.first
 
             return TrackpadDevice(
-                id: "\(builtIn ? "built-in" : "external")-\(productID ?? index)",
+                id: "\(builtIn ? "built-in" : "external")-\(productID ?? -1)-\(index)",
                 name: product,
                 manufacturer: product.localizedCaseInsensitiveContains("apple") ||
                     product.localizedCaseInsensitiveContains("magic trackpad") ? "Apple" : nil,

@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 @MainActor
@@ -7,6 +8,7 @@ final class HapticEngine {
         didSet { enhancedActuator?.target = target }
     }
     var isPlaying = false
+    private(set) var isPlayingLibraryPattern = false
     var currentStep: Int?
     var enhancedDevices: [EnhancedTrackpadSummary] = []
     private(set) var enhancedHapticsEnabled = false
@@ -14,6 +16,7 @@ final class HapticEngine {
 
     @ObservationIgnored private var enhancedActuator: EnhancedHapticActuator?
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
+    @ObservationIgnored private var actuationObserver: (@Sendable (HapticCounterDevice) -> Void)?
 
     var enhancedAvailable: Bool { enhancedHapticsEnabled }
 
@@ -31,6 +34,7 @@ final class HapticEngine {
             return false
         }
         enhancedActuator.target = target
+        enhancedActuator.setActuationObserver(actuationObserver)
         enhancedActuator.refreshDevices()
         enhancedDevices = enhancedActuator.summaries
         enhancedHapticsEnabled = true
@@ -45,7 +49,7 @@ final class HapticEngine {
         enhancedActuator = nil
         enhancedDevices = []
         enhancedHapticsEnabled = false
-        lastMessage = "Enhanced haptics are off."
+        lastMessage = "Enhanced Mode actuator output is off."
     }
 
     func refreshDevices() {
@@ -57,10 +61,11 @@ final class HapticEngine {
         stopPlayback()
         stopBuzz()
         guard enhancedAvailable else {
-            lastMessage = "Enable enhanced haptics before playing a pattern."
+            lastMessage = "Enable Enhanced Mode before playing a pattern."
             return
         }
         isPlaying = true
+        isPlayingLibraryPattern = false
         let stepDuration = 60 / min(max(beatsPerMinute, 40), 240) / 4
 
         playbackTask = Task { @MainActor [weak self] in
@@ -77,6 +82,66 @@ final class HapticEngine {
             guard !Task.isCancelled else { return }
             currentStep = nil
             isPlaying = false
+            isPlayingLibraryPattern = false
+        }
+    }
+
+    func play(_ document: HapticPatternDocument) {
+        stopPlayback()
+        stopBuzz()
+        guard enhancedAvailable else {
+            lastMessage = "Enable Enhanced Mode before playing a pattern."
+            return
+        }
+
+        let validatedDocument: HapticPatternDocument
+        do {
+            validatedDocument = try document.validated()
+        } catch {
+            lastMessage = error.localizedDescription
+            return
+        }
+
+        let pulses = validatedDocument.events.enumerated().flatMap { eventIndex, event in
+            (0..<event.oscillationCount).map { cycle in
+                ScheduledPulse(
+                    time: event.timeSeconds + (Double(cycle) / event.frequencyHz),
+                    eventIndex: eventIndex,
+                    feedback: event.feedback,
+                    amplitude: event.amplitude
+                )
+            }
+        }
+        .sorted { lhs, rhs in
+            if lhs.time == rhs.time { return lhs.eventIndex < rhs.eventIndex }
+            return lhs.time < rhs.time
+        }
+
+        guard !pulses.isEmpty else {
+            lastMessage = "The selected pattern contains no oscillations."
+            return
+        }
+
+        isPlaying = true
+        isPlayingLibraryPattern = true
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var previousTime: TimeInterval = 0
+            for pulse in pulses {
+                guard !Task.isCancelled else { break }
+                let delay = max(0, pulse.time - previousTime)
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+                guard !Task.isCancelled else { break }
+                currentStep = pulse.eventIndex
+                perform(pulse.feedback, amplitude: pulse.amplitude)
+                previousTime = pulse.time
+            }
+            guard !Task.isCancelled else { return }
+            currentStep = nil
+            isPlaying = false
+            isPlayingLibraryPattern = false
         }
     }
 
@@ -84,7 +149,7 @@ final class HapticEngine {
         stopPlayback()
         stopBuzz()
         guard enhancedAvailable else {
-            lastMessage = "Enable enhanced haptics before testing a pulse."
+            lastMessage = "Enable Enhanced Mode before testing a pulse."
             return
         }
         perform(feedback, amplitude: amplitude)
@@ -94,7 +159,7 @@ final class HapticEngine {
     func startBuzz(_ feedback: HapticFeedbackKind, amplitude: Double, frequency: Double) -> Bool {
         stopPlayback()
         guard enhancedAvailable else {
-            lastMessage = "Enable enhanced haptics before starting a custom signal."
+            lastMessage = "Enable Enhanced Mode before starting a custom signal."
             return false
         }
         guard enhancedActuator?.startBuzz(
@@ -117,6 +182,14 @@ final class HapticEngine {
         playbackTask = nil
         currentStep = nil
         isPlaying = false
+        isPlayingLibraryPattern = false
+    }
+
+    func setActuationObserver(
+        _ observer: (@Sendable (HapticCounterDevice) -> Void)?
+    ) {
+        actuationObserver = observer
+        enhancedActuator?.setActuationObserver(observer)
     }
 
     func shutDown() {
@@ -136,5 +209,12 @@ final class HapticEngine {
         lastMessage = target == .all
             ? "Enhanced playback failed; no haptic pulse was sent."
             : "The selected trackpad is unavailable; no haptic pulse was sent."
+    }
+
+    private struct ScheduledPulse: Sendable {
+        let time: TimeInterval
+        let eventIndex: Int
+        let feedback: HapticFeedbackKind
+        let amplitude: Double
     }
 }

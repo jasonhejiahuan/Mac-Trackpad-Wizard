@@ -1,5 +1,29 @@
 import Foundation
 
+enum TouchSurfaceSizeMode: String, CaseIterable, Identifiable, Sendable {
+    case fit
+    case enlarged
+    case physical
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .fit: "Fit Window"
+        case .enlarged: "Enlarged"
+        case .physical: "Physical Size"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .fit: "Adapts to the available card"
+        case .enlarged: "Uses more of the available window"
+        case .physical: "Matches reported hardware size on this display"
+        }
+    }
+}
+
 enum TouchDataSource: String, Codable, Sendable {
     case appKit
     case enhanced
@@ -181,7 +205,7 @@ struct TouchTrailPoint: Identifiable, Hashable, Sendable {
     let contactID: Int
     let x: Double
     let y: Double
-    let ageIndex: Int
+    let timestamp: TimeInterval
 }
 
 struct TouchEventLogEntry: Identifiable, Codable, Hashable, Sendable {
