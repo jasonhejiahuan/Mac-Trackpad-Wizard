@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		000000000000000000000201 /* TrackpadWizard.icns in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000103 /* TrackpadWizard.icns */; };
+		000000000000000000000205 /* TrackpadWizard.icon in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000108 /* TrackpadWizard.icon */; };
 		000000000000000000000202 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000104 /* AppKit.framework */; };
 		000000000000000000000203 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000105 /* ApplicationServices.framework */; };
 		000000000000000000000204 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000106 /* IOKit.framework */; };
@@ -31,6 +31,7 @@
 		000000000000000000000105 /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
 		000000000000000000000106 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		000000000000000000000107 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		000000000000000000000108 /* TrackpadWizard.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = TrackpadWizard.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -97,6 +98,7 @@
 		000000000000000000000005 /* Assets */ = {
 			isa = PBXGroup;
 			children = (
+				000000000000000000000108 /* TrackpadWizard.icon */,
 				000000000000000000000103 /* TrackpadWizard.icns */,
 			);
 			path = Assets;
@@ -196,7 +198,7 @@
 		000000000000000000000403 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
-				000000000000000000000201 /* TrackpadWizard.icns in Resources */,
+				000000000000000000000205 /* TrackpadWizard.icon in Resources */,
 			);
 		};
 		000000000000000000000406 /* Resources */ = {
@@ -272,6 +274,7 @@
 		000000000000000000000603 /* Debug configuration for PBXNativeTarget "TrackpadWizard" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = TrackpadWizard;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
@@ -300,6 +303,7 @@
 		000000000000000000000604 /* Release configuration for PBXNativeTarget "TrackpadWizard" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = TrackpadWizard;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;

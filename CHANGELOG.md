@@ -18,6 +18,7 @@ All notable changes to Trackpad Wizard are documented here.
 - Added an unclean-session recovery marker so a confirmed private override can be restored to the selected target's macOS default on the next launch after interrupted cleanup.
 - Consolidated preview controls across Touch Lab and Gesture Studio, added status indicators to macOS trackpad settings, and moved sidebar counts into their corresponding rows.
 - Required Apple Development signing for Xcode test and verification builds.
+- Replaced the nested-box icon with a macOS 26/27 Icon Composer source: six scalable dot/ripple layers, adaptive Default/Dark/tinted/clear renditions, and verified 16–1024 px fallback output.
 
 - Added normalized near-stepless amplitude control to enhanced haptic pulses.
 - Added a live custom signal with independent amplitude and 8–120 Hz pulse-frequency controls.

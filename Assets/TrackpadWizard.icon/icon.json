@@ -1,0 +1,68 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.76078,0.80000,0.84314,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "contact-right.svg",
+          "name" : "Right Contact",
+          "opacity" : 0.82
+        },
+        {
+          "image-name" : "contact-center.svg",
+          "name" : "Center Contact",
+          "opacity" : 1
+        },
+        {
+          "image-name" : "contact-left.svg",
+          "name" : "Left Contact",
+          "opacity" : 0.7
+        }
+      ],
+      "name" : "Contact Points",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.32
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.22
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "ripple-tertiary.svg",
+          "name" : "Tertiary Ripple",
+          "opacity" : 0.48
+        },
+        {
+          "image-name" : "ripple-secondary.svg",
+          "name" : "Secondary Ripple",
+          "opacity" : 0.7
+        },
+        {
+          "image-name" : "ripple-primary.svg",
+          "name" : "Primary Ripple",
+          "opacity" : 0.96
+        }
+      ],
+      "name" : "Haptic Ripples",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.36
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

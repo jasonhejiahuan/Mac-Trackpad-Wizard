@@ -50,6 +50,32 @@ DESTINATION="platform=macOS,arch=$(uname -m)"
 
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Release/Trackpad Wizard.app"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
+APP_INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
+APP_ASSET_CATALOG="$APP_BUNDLE/Contents/Resources/Assets.car"
+if [[ "$(plutil -extract CFBundleIconName raw -o - "$APP_INFO_PLIST")" != "TrackpadWizard" ]]; then
+  echo "The Release app is not configured to use the Icon Composer app icon." >&2
+  exit 1
+fi
+if [[ ! -f "$APP_ASSET_CATALOG" ]]; then
+  echo "The compiled Icon Composer asset catalog is missing." >&2
+  exit 1
+fi
+ASSETUTIL_BIN="$(/usr/bin/xcrun --find assetutil)"
+APP_ICON_ASSETS="$($ASSETUTIL_BIN --info "$APP_ASSET_CATALOG")"
+if ! grep -q '"Appearance" : "NSAppearanceNameDarkAqua"' <<<"$APP_ICON_ASSETS"; then
+  echo "The compiled app icon is missing its Dark appearance." >&2
+  exit 1
+fi
+if ! grep -q '"Appearance" : "ISAppearanceTintable"' <<<"$APP_ICON_ASSETS"; then
+  echo "The compiled app icon is missing its tinted/clear appearance data." >&2
+  exit 1
+fi
+if ! grep -q '"LayerCount" : 3' <<<"$APP_ICON_ASSETS"; then
+  echo "The compiled app icon is missing its layered groups." >&2
+  exit 1
+fi
+
 SIGNATURE_DETAILS="$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1)"
 if ! grep -q '^Authority=Apple Development:' <<<"$SIGNATURE_DETAILS"; then
   echo "Release verification build was not signed with Apple Development." >&2

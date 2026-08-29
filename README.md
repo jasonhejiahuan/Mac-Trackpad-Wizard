@@ -75,7 +75,7 @@ The assembled app is signed with hardened runtime enabled and then checked with 
 
 `script/check.sh` uses the same Xcode selection logic, runs SwiftPM and Xcode tests, performs an optimized Xcode Release build, and verifies that the resulting app is signed by Apple Development.
 
-Regenerate the editable neutral icon with:
+Edit the layered app icon in `Assets/TrackpadWizard.icon` with Icon Composer. Its six SVG layers preserve separate Liquid Glass behavior and Default, Dark, tinted, and clear renditions. Regenerate the repository preview PNG and legacy ICNS fallback with:
 
 ```sh
 ./script/generate_icon.sh
