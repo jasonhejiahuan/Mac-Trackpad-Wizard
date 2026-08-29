@@ -232,6 +232,10 @@ final class AppModel {
             ?? savedHapticPatterns.first
     }
 
+    var canSaveSelectedComposerPattern: Bool {
+        selectedHapticPattern.steps.contains { $0.isEnabled }
+    }
+
     var surfaceSizeMM: CGSize {
         CGSize(width: surfaceWidthMM, height: surfaceHeightMM)
     }
@@ -552,9 +556,14 @@ final class AppModel {
             beatsPerMinute: hapticTempo,
             name: selectedHapticPattern.name
         )
-        savedHapticPatterns.append(document)
-        selectedSavedHapticPatternID = document.id
-        statusMessage = "Saved \(document.name) to the pattern library."
+        do {
+            let validated = try document.validated()
+            savedHapticPatterns.append(validated)
+            selectedSavedHapticPatternID = validated.id
+            statusMessage = "Saved \(validated.name) to the pattern library."
+        } catch {
+            statusMessage = "Save failed: \(error.localizedDescription)"
+        }
     }
 
     func startHapticPatternRecording() {

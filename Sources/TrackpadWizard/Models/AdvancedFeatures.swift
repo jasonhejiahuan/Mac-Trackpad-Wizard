@@ -80,6 +80,52 @@ struct AdvancedFeatureConfirmation: Identifiable, Equatable, Sendable {
     }
 }
 
+/// A privacy-preserving description of the devices affected by an advanced
+/// feature. Counts are persisted instead of raw multitouch device identifiers
+/// so recovery can wait for every affected device class after a crash.
+struct AdvancedTrackpadDeviceComposition: Codable, Equatable, Sendable {
+    let builtInCount: Int
+    let externalCount: Int
+
+    init(builtInCount: Int, externalCount: Int) {
+        self.builtInCount = builtInCount
+        self.externalCount = externalCount
+    }
+
+    var isValid: Bool {
+        builtInCount >= 0 && externalCount >= 0 && (builtInCount > 0 || externalCount > 0)
+    }
+
+    func isSatisfied(by available: AdvancedTrackpadDeviceComposition) -> Bool {
+        available.builtInCount >= builtInCount && available.externalCount >= externalCount
+    }
+
+    func combined(with other: AdvancedTrackpadDeviceComposition) -> Self {
+        Self(
+            builtInCount: max(builtInCount, other.builtInCount),
+            externalCount: max(externalCount, other.externalCount)
+        )
+    }
+}
+
+struct AdvancedTrackpadRecoveryMarker: Codable, Equatable, Sendable {
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
+    let target: HapticDeviceTarget
+    let requiredComposition: AdvancedTrackpadDeviceComposition?
+
+    init(
+        schemaVersion: Int = Self.currentSchemaVersion,
+        target: HapticDeviceTarget,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.target = target
+        self.requiredComposition = requiredComposition
+    }
+}
+
 struct SurfaceOrientationSnapshot: Equatable, Sendable {
     let valuesByDevice: [UInt64: UInt32]
 }

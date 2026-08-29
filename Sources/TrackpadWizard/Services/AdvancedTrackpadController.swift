@@ -8,28 +8,36 @@ protocol AdvancedTrackpadControlling: AnyObject {
 
     func applySurfaceOrientation(
         _ orientation: ExperimentalSurfaceOrientation,
-        target: HapticDeviceTarget
+        target: HapticDeviceTarget,
+        beforeApplying: (AdvancedTrackpadDeviceComposition) -> Void
     ) throws -> SurfaceOrientationSnapshot
     @discardableResult
     func restoreSurfaceOrientation(_ snapshot: SurfaceOrientationSnapshot) -> Bool
     @discardableResult
-    func restoreDefaultSurfaceOrientation(target: HapticDeviceTarget?) -> Bool
+    func restoreDefaultSurfaceOrientation(
+        target: HapticDeviceTarget?,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> Bool
 
     func applySystemHaptics(
         enabled: Bool,
-        target: HapticDeviceTarget
+        target: HapticDeviceTarget,
+        beforeApplying: (AdvancedTrackpadDeviceComposition) -> Void
     ) throws -> SystemHapticsSnapshot
     @discardableResult
     func restoreSystemHaptics(_ snapshot: SystemHapticsSnapshot) -> Bool
     @discardableResult
-    func restoreDefaultSystemHaptics(target: HapticDeviceTarget?) -> Bool
+    func restoreDefaultSystemHaptics(
+        target: HapticDeviceTarget?,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> Bool
 
     func shutDown()
 }
 
 /// A narrow runtime bridge for the two explicitly user-enabled experimental
-/// controls. No private state is persisted and raw device identifiers never
-/// leave this process.
+/// controls. Raw device identifiers never leave this process; recovery only
+/// receives privacy-preserving built-in/external device counts.
 @MainActor
 final class AdvancedTrackpadController: AdvancedTrackpadControlling {
     private typealias DeviceListFunction = @convention(c) () -> Unmanaged<CFArray>?
@@ -126,7 +134,8 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
 
     func applySurfaceOrientation(
         _ orientation: ExperimentalSurfaceOrientation,
-        target: HapticDeviceTarget
+        target: HapticDeviceTarget,
+        beforeApplying: (AdvancedTrackpadDeviceComposition) -> Void
     ) throws -> SurfaceOrientationSnapshot {
         guard supportsSurfaceOrientation, let setter = setSurfaceOrientation else {
             throw AdvancedTrackpadControllerError.unavailable("Surface orientation")
@@ -136,6 +145,10 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         for device in selected {
             snapshot[device.identifier] = try currentOrientation(for: device)
         }
+
+        // Persist recovery composition after all restore values are captured,
+        // but before the first private API mutation can occur.
+        beforeApplying(Self.composition(of: selected))
 
         var changed: [Device] = []
         for device in selected {
@@ -159,9 +172,15 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         restoreOrientationValues(snapshot.valuesByDevice, devices: scanDevices())
     }
 
-    func restoreDefaultSurfaceOrientation(target: HapticDeviceTarget?) -> Bool {
+    func restoreDefaultSurfaceOrientation(
+        target: HapticDeviceTarget?,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> Bool {
         guard let setter = setSurfaceOrientation else { return false }
         let scannedDevices = scanDevices()
+        let hasRequiredDevices = requiredComposition?.isSatisfied(
+            by: Self.composition(of: scannedDevices)
+        ) ?? true
         let devices = Dictionary(uniqueKeysWithValues: scannedDevices.map { ($0.identifier, $0) })
         var identifiers = managedSurfaceDeviceIDs
         if let target {
@@ -177,12 +196,13 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
             }
         }
         managedSurfaceDeviceIDs = remaining
-        return remaining.isEmpty
+        return remaining.isEmpty && hasRequiredDevices
     }
 
     func applySystemHaptics(
         enabled: Bool,
-        target: HapticDeviceTarget
+        target: HapticDeviceTarget,
+        beforeApplying: (AdvancedTrackpadDeviceComposition) -> Void
     ) throws -> SystemHapticsSnapshot {
         guard supportsSystemHaptics else {
             throw AdvancedTrackpadControllerError.unavailable("System haptic feedback")
@@ -197,6 +217,10 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
                 return getter(actuator)
             }
         }
+
+        // See the orientation path above: the marker must reach persistent
+        // storage before any actuator state is changed.
+        beforeApplying(Self.composition(of: selected))
 
         var changed: [Device] = []
         do {
@@ -218,8 +242,14 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         restoreSystemHapticValues(snapshot.valuesByDevice, devices: scanDevices())
     }
 
-    func restoreDefaultSystemHaptics(target: HapticDeviceTarget?) -> Bool {
+    func restoreDefaultSystemHaptics(
+        target: HapticDeviceTarget?,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> Bool {
         let scannedDevices = scanDevices()
+        let hasRequiredDevices = requiredComposition?.isSatisfied(
+            by: Self.composition(of: scannedDevices)
+        ) ?? true
         let devices = Dictionary(uniqueKeysWithValues: scannedDevices.map { ($0.identifier, $0) })
         var identifiers = managedSystemHapticsDeviceIDs
         if let target {
@@ -236,7 +266,7 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
             }
         }
         managedSystemHapticsDeviceIDs = remaining
-        return remaining.isEmpty
+        return remaining.isEmpty && hasRequiredDevices
     }
 
     func shutDown() {
@@ -356,6 +386,13 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         in devices: [Device]
     ) -> Set<UInt64> {
         Set(Self.devices(for: target, in: devices).map(\.identifier))
+    }
+
+    private static func composition(of devices: [Device]) -> AdvancedTrackpadDeviceComposition {
+        AdvancedTrackpadDeviceComposition(
+            builtInCount: devices.lazy.filter(\.isBuiltIn).count,
+            externalCount: devices.lazy.filter { !$0.isBuiltIn }.count
+        )
     }
 
     private func scanDevices() -> [Device] {

@@ -83,7 +83,7 @@ final class AdvancedFeaturesStore {
         }
         if !enabled {
             restorePendingChange(ifMatching: .surfaceOrientation, reason: "Pending orientation change restored.")
-            let restored = controller.restoreDefaultSurfaceOrientation(target: target)
+            let restored = restoreDefaultSurfaceOrientation(fallbackTarget: target)
             surfaceHasActiveOverride = !restored
             selectedSurfaceOrientation = .degrees0
             updateRecoveryMarker(
@@ -112,7 +112,7 @@ final class AdvancedFeaturesStore {
         }
         if !enabled {
             restorePendingChange(ifMatching: .systemHaptics, reason: "Pending haptic change restored.")
-            let restored = controller.restoreDefaultSystemHaptics(target: target)
+            let restored = restoreDefaultSystemHaptics(fallbackTarget: target)
             systemHapticsHasActiveOverride = !restored
             systemHapticFeedbackEnabled = true
             updateRecoveryMarker(
@@ -145,13 +145,18 @@ final class AdvancedFeaturesStore {
         }
         guard orientation != selectedSurfaceOrientation else { return true }
 
-        updateRecoveryMarker(
-            for: .surfaceOrientation,
-            target: target,
-            recoveryIsNeeded: true
-        )
         do {
-            let snapshot = try controller.applySurfaceOrientation(orientation, target: target)
+            let snapshot = try controller.applySurfaceOrientation(
+                orientation,
+                target: target
+            ) { composition in
+                self.updateRecoveryMarker(
+                    for: .surfaceOrientation,
+                    target: target,
+                    requiredComposition: composition,
+                    recoveryIsNeeded: true
+                )
+            }
             let previous = selectedSurfaceOrientation
             let previousHadOverride = surfaceHasActiveOverride
             selectedSurfaceOrientation = orientation
@@ -170,7 +175,7 @@ final class AdvancedFeaturesStore {
             )
             return true
         } catch {
-            surfaceHasActiveOverride = true
+            surfaceHasActiveOverride = recoveryMarker(for: .surfaceOrientation) != nil
             lastMessage = error.localizedDescription
             return false
         }
@@ -191,13 +196,18 @@ final class AdvancedFeaturesStore {
         }
         guard enabled != systemHapticFeedbackEnabled else { return true }
 
-        updateRecoveryMarker(
-            for: .systemHaptics,
-            target: target,
-            recoveryIsNeeded: true
-        )
         do {
-            let snapshot = try controller.applySystemHaptics(enabled: enabled, target: target)
+            let snapshot = try controller.applySystemHaptics(
+                enabled: enabled,
+                target: target
+            ) { composition in
+                self.updateRecoveryMarker(
+                    for: .systemHaptics,
+                    target: target,
+                    requiredComposition: composition,
+                    recoveryIsNeeded: true
+                )
+            }
             let previous = systemHapticFeedbackEnabled
             let previousHadOverride = systemHapticsHasActiveOverride
             systemHapticFeedbackEnabled = enabled
@@ -214,7 +224,7 @@ final class AdvancedFeaturesStore {
             )
             return true
         } catch {
-            systemHapticsHasActiveOverride = true
+            systemHapticsHasActiveOverride = recoveryMarker(for: .systemHaptics) != nil
             lastMessage = error.localizedDescription
             return false
         }
@@ -239,7 +249,7 @@ final class AdvancedFeaturesStore {
             selectedSurfaceOrientation = .degrees0
             return
         }
-        let restored = controller.restoreDefaultSurfaceOrientation(target: target)
+        let restored = restoreDefaultSurfaceOrientation(fallbackTarget: target)
         surfaceHasActiveOverride = !restored
         selectedSurfaceOrientation = .degrees0
         updateRecoveryMarker(
@@ -258,7 +268,7 @@ final class AdvancedFeaturesStore {
             systemHapticFeedbackEnabled = true
             return
         }
-        let restored = controller.restoreDefaultSystemHaptics(target: target)
+        let restored = restoreDefaultSystemHaptics(fallbackTarget: target)
         systemHapticsHasActiveOverride = !restored
         systemHapticFeedbackEnabled = true
         updateRecoveryMarker(
@@ -274,13 +284,13 @@ final class AdvancedFeaturesStore {
     func restoreDefaultsForTargetChange() {
         restorePendingChange(reason: "The pending experimental change was restored before changing target.")
         if surfaceHasActiveOverride {
-            surfaceHasActiveOverride = !controller.restoreDefaultSurfaceOrientation(target: nil)
+            surfaceHasActiveOverride = !restoreDefaultSurfaceOrientation(fallbackTarget: nil)
             if !surfaceHasActiveOverride {
                 defaults.removeObject(forKey: DefaultsKey.surfaceRecoveryTarget)
             }
         }
         if systemHapticsHasActiveOverride {
-            systemHapticsHasActiveOverride = !controller.restoreDefaultSystemHaptics(target: nil)
+            systemHapticsHasActiveOverride = !restoreDefaultSystemHaptics(fallbackTarget: nil)
             if !systemHapticsHasActiveOverride {
                 defaults.removeObject(forKey: DefaultsKey.systemHapticsRecoveryTarget)
             }
@@ -294,12 +304,12 @@ final class AdvancedFeaturesStore {
         recoveryTask = nil
         restorePendingChange(reason: "Pending experimental change restored during shutdown.")
         if surfaceHasActiveOverride {
-            if controller.restoreDefaultSurfaceOrientation(target: nil) {
+            if restoreDefaultSurfaceOrientation(fallbackTarget: nil) {
                 defaults.removeObject(forKey: DefaultsKey.surfaceRecoveryTarget)
             }
         }
         if systemHapticsHasActiveOverride {
-            if controller.restoreDefaultSystemHaptics(target: nil) {
+            if restoreDefaultSystemHaptics(fallbackTarget: nil) {
                 defaults.removeObject(forKey: DefaultsKey.systemHapticsRecoveryTarget)
             }
         }
@@ -375,8 +385,11 @@ final class AdvancedFeaturesStore {
         var recoveredFeatures: [String] = []
         var pendingFeatures: [String] = []
 
-        if let target = recoveryTarget(forKey: DefaultsKey.surfaceRecoveryTarget) {
-            let restored = controller.restoreDefaultSurfaceOrientation(target: target)
+        if let marker = recoveryMarker(for: .surfaceOrientation) {
+            let restored = controller.restoreDefaultSurfaceOrientation(
+                target: marker.target,
+                requiredComposition: marker.requiredComposition
+            )
             surfaceHasActiveOverride = !restored
             if restored {
                 defaults.removeObject(forKey: DefaultsKey.surfaceRecoveryTarget)
@@ -386,8 +399,11 @@ final class AdvancedFeaturesStore {
             }
         }
 
-        if let target = recoveryTarget(forKey: DefaultsKey.systemHapticsRecoveryTarget) {
-            let restored = controller.restoreDefaultSystemHaptics(target: target)
+        if let marker = recoveryMarker(for: .systemHaptics) {
+            let restored = controller.restoreDefaultSystemHaptics(
+                target: marker.target,
+                requiredComposition: marker.requiredComposition
+            )
             systemHapticsHasActiveOverride = !restored
             if restored {
                 defaults.removeObject(forKey: DefaultsKey.systemHapticsRecoveryTarget)
@@ -404,23 +420,88 @@ final class AdvancedFeaturesStore {
         }
     }
 
-    private func recoveryTarget(forKey key: String) -> HapticDeviceTarget? {
+    private func restoreDefaultSurfaceOrientation(
+        fallbackTarget: HapticDeviceTarget?
+    ) -> Bool {
+        let marker = recoveryMarker(for: .surfaceOrientation)
+        return controller.restoreDefaultSurfaceOrientation(
+            target: marker?.target ?? fallbackTarget,
+            requiredComposition: marker?.requiredComposition
+        )
+    }
+
+    private func restoreDefaultSystemHaptics(
+        fallbackTarget: HapticDeviceTarget?
+    ) -> Bool {
+        let marker = recoveryMarker(for: .systemHaptics)
+        return controller.restoreDefaultSystemHaptics(
+            target: marker?.target ?? fallbackTarget,
+            requiredComposition: marker?.requiredComposition
+        )
+    }
+
+    private func recoveryMarker(
+        for feature: ExperimentalFeatureKind
+    ) -> AdvancedTrackpadRecoveryMarker? {
+        recoveryMarker(forKey: recoveryKey(for: feature))
+    }
+
+    private func recoveryMarker(forKey key: String) -> AdvancedTrackpadRecoveryMarker? {
+        if let data = defaults.data(forKey: key),
+           let marker = try? JSONDecoder().decode(AdvancedTrackpadRecoveryMarker.self, from: data),
+           marker.schemaVersion == AdvancedTrackpadRecoveryMarker.currentSchemaVersion,
+           marker.requiredComposition?.isValid != false {
+            return marker
+        }
+
+        // Migrate markers written by version 0.2.0. They did not include a
+        // composition, so recovery retains its previous target-only behavior.
         guard let rawValue = defaults.string(forKey: key) else { return nil }
-        return HapticDeviceTarget(rawValue: rawValue) ?? .all
+        return AdvancedTrackpadRecoveryMarker(
+            target: HapticDeviceTarget(rawValue: rawValue) ?? .all,
+            requiredComposition: nil
+        )
+    }
+
+    private func recoveryKey(for feature: ExperimentalFeatureKind) -> String {
+        feature == .surfaceOrientation
+            ? DefaultsKey.surfaceRecoveryTarget
+            : DefaultsKey.systemHapticsRecoveryTarget
     }
 
     private func updateRecoveryMarker(
         for feature: ExperimentalFeatureKind,
         target: HapticDeviceTarget,
+        requiredComposition: AdvancedTrackpadDeviceComposition? = nil,
         recoveryIsNeeded: Bool
     ) {
-        let key = feature == .surfaceOrientation
-            ? DefaultsKey.surfaceRecoveryTarget
-            : DefaultsKey.systemHapticsRecoveryTarget
+        let key = recoveryKey(for: feature)
         if recoveryIsNeeded {
-            defaults.set(target.rawValue, forKey: key)
+            let marker: AdvancedTrackpadRecoveryMarker
+            if requiredComposition == nil, let existing = recoveryMarker(forKey: key) {
+                marker = existing
+            } else {
+                let existing = recoveryMarker(forKey: key)
+                marker = AdvancedTrackpadRecoveryMarker(
+                    target: combinedRecoveryTarget(existing?.target, target),
+                    requiredComposition: requiredComposition.map { composition in
+                        existing?.requiredComposition?.combined(with: composition) ?? composition
+                    }
+                )
+            }
+            guard let data = try? JSONEncoder().encode(marker) else { return }
+            defaults.set(data, forKey: key)
         } else {
             defaults.removeObject(forKey: key)
         }
+        _ = defaults.synchronize()
+    }
+
+    private func combinedRecoveryTarget(
+        _ existing: HapticDeviceTarget?,
+        _ requested: HapticDeviceTarget
+    ) -> HapticDeviceTarget {
+        guard let existing, existing != requested else { return requested }
+        return .all
     }
 }

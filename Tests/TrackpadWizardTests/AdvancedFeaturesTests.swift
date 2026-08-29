@@ -33,6 +33,26 @@ struct AdvancedFeaturesTests {
         #expect(isClose(vector270.y, -0.2))
     }
 
+    @Test("Recovery composition requires every previously affected device class and count")
+    func recoveryComposition() {
+        let builtInAndExternal = AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 1
+        )
+        #expect(!builtInAndExternal.isSatisfied(by: AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 0
+        )))
+        #expect(builtInAndExternal.isSatisfied(by: AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 1
+        )))
+        #expect(!AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 2
+        ).isSatisfied(by: builtInAndExternal))
+    }
+
     @Test("Unconfirmed advanced changes restore their captured state automatically")
     func automaticRecovery() async throws {
         let environment = try TestEnvironment()
@@ -131,6 +151,104 @@ struct AdvancedFeaturesTests {
         store.shutDown()
     }
 
+    @Test("Advanced changes persist the exact target composition before mutation")
+    func recoveryMarkerCapturesComposition() throws {
+        let environment = try TestEnvironment()
+        defer { environment.cleanUp() }
+        let store = AdvancedFeaturesStore(
+            defaults: environment.defaults,
+            controller: environment.controller
+        )
+
+        #expect(store.setSurfaceOrientationFeatureEnabled(true, target: .all))
+        #expect(store.requestSurfaceOrientation(.degrees180, target: .all))
+
+        let data = try #require(environment.defaults.data(
+            forKey: "experimentalSurfaceOrientationRecoveryTarget"
+        ))
+        let marker = try JSONDecoder().decode(AdvancedTrackpadRecoveryMarker.self, from: data)
+        #expect(marker.target == .all)
+        #expect(marker.requiredComposition == AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 1
+        ))
+
+        store.confirmPendingChange()
+        environment.controller.availableComposition = AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 0
+        )
+        #expect(store.requestSurfaceOrientation(.degrees90, target: .all))
+        let updatedData = try #require(environment.defaults.data(
+            forKey: "experimentalSurfaceOrientationRecoveryTarget"
+        ))
+        let updatedMarker = try JSONDecoder().decode(
+            AdvancedTrackpadRecoveryMarker.self,
+            from: updatedData
+        )
+        #expect(updatedMarker.requiredComposition == marker.requiredComposition)
+
+        environment.controller.availableComposition = marker.requiredComposition
+            ?? environment.controller.availableComposition
+        store.restorePendingChange()
+        store.restoreSurfaceOrientationDefault(target: .all)
+        store.shutDown()
+    }
+
+    @Test("All-device recovery remains pending while an affected device class is disconnected")
+    func allDeviceRecoveryWaitsForDisconnectedClass() throws {
+        let environment = try TestEnvironment()
+        defer { environment.cleanUp() }
+        let requiredComposition = AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 1
+        )
+        let markerData = try JSONEncoder().encode(AdvancedTrackpadRecoveryMarker(
+            target: .all,
+            requiredComposition: requiredComposition
+        ))
+        environment.defaults.set(
+            markerData,
+            forKey: "experimentalSurfaceOrientationRecoveryTarget"
+        )
+        environment.defaults.set(
+            markerData,
+            forKey: "experimentalSystemHapticsRecoveryTarget"
+        )
+        environment.controller.availableComposition = AdvancedTrackpadDeviceComposition(
+            builtInCount: 1,
+            externalCount: 0
+        )
+
+        let store = AdvancedFeaturesStore(
+            defaults: environment.defaults,
+            controller: environment.controller
+        )
+
+        #expect(environment.controller.lastDefaultSurfaceTarget == .all)
+        #expect(environment.controller.lastDefaultSystemHapticsTarget == .all)
+        #expect(environment.controller.lastRequiredSurfaceComposition == requiredComposition)
+        #expect(environment.controller.lastRequiredSystemHapticsComposition == requiredComposition)
+        #expect(environment.defaults.object(
+            forKey: "experimentalSurfaceOrientationRecoveryTarget"
+        ) != nil)
+        #expect(environment.defaults.object(
+            forKey: "experimentalSystemHapticsRecoveryTarget"
+        ) != nil)
+        #expect(store.lastMessage?.contains("Recovery is still pending") == true)
+
+        environment.controller.availableComposition = requiredComposition
+        #expect(store.setSurfaceOrientationFeatureEnabled(false, target: .all))
+        #expect(store.setSystemHapticsFeatureEnabled(false, target: .all))
+        #expect(environment.defaults.object(
+            forKey: "experimentalSurfaceOrientationRecoveryTarget"
+        ) == nil)
+        #expect(environment.defaults.object(
+            forKey: "experimentalSystemHapticsRecoveryTarget"
+        ) == nil)
+        store.shutDown()
+    }
+
     private func isClose(_ lhs: Double, _ rhs: Double) -> Bool {
         abs(lhs - rhs) < 0.000_001
     }
@@ -148,15 +266,23 @@ private final class TestAdvancedTrackpadController: AdvancedTrackpadControlling 
     var defaultSystemHapticsRestoreCount = 0
     var lastDefaultSurfaceTarget: HapticDeviceTarget?
     var lastDefaultSystemHapticsTarget: HapticDeviceTarget?
+    var lastRequiredSurfaceComposition: AdvancedTrackpadDeviceComposition?
+    var lastRequiredSystemHapticsComposition: AdvancedTrackpadDeviceComposition?
+    var availableComposition = AdvancedTrackpadDeviceComposition(
+        builtInCount: 1,
+        externalCount: 1
+    )
     var defaultSurfaceRestoreResult = true
     var defaultSystemHapticsRestoreResult = true
     var shutDownCount = 0
 
     func applySurfaceOrientation(
         _ orientation: ExperimentalSurfaceOrientation,
-        target: HapticDeviceTarget
+        target: HapticDeviceTarget,
+        beforeApplying: (AdvancedTrackpadDeviceComposition) -> Void
     ) throws -> SurfaceOrientationSnapshot {
         surfaceRequests.append((orientation, target))
+        beforeApplying(composition(for: target))
         return SurfaceOrientationSnapshot(valuesByDevice: [11: 0])
     }
 
@@ -165,17 +291,24 @@ private final class TestAdvancedTrackpadController: AdvancedTrackpadControlling 
         return true
     }
 
-    func restoreDefaultSurfaceOrientation(target: HapticDeviceTarget?) -> Bool {
+    func restoreDefaultSurfaceOrientation(
+        target: HapticDeviceTarget?,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> Bool {
         defaultSurfaceRestoreCount += 1
         lastDefaultSurfaceTarget = target
+        lastRequiredSurfaceComposition = requiredComposition
         return defaultSurfaceRestoreResult
+            && (requiredComposition?.isSatisfied(by: availableComposition) ?? true)
     }
 
     func applySystemHaptics(
         enabled: Bool,
-        target: HapticDeviceTarget
+        target: HapticDeviceTarget,
+        beforeApplying: (AdvancedTrackpadDeviceComposition) -> Void
     ) throws -> SystemHapticsSnapshot {
         systemHapticsRequests.append((enabled, target))
+        beforeApplying(composition(for: target))
         return SystemHapticsSnapshot(valuesByDevice: [22: true])
     }
 
@@ -184,14 +317,38 @@ private final class TestAdvancedTrackpadController: AdvancedTrackpadControlling 
         return true
     }
 
-    func restoreDefaultSystemHaptics(target: HapticDeviceTarget?) -> Bool {
+    func restoreDefaultSystemHaptics(
+        target: HapticDeviceTarget?,
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> Bool {
         defaultSystemHapticsRestoreCount += 1
         lastDefaultSystemHapticsTarget = target
+        lastRequiredSystemHapticsComposition = requiredComposition
         return defaultSystemHapticsRestoreResult
+            && (requiredComposition?.isSatisfied(by: availableComposition) ?? true)
     }
 
     func shutDown() {
         shutDownCount += 1
+    }
+
+    private func composition(
+        for target: HapticDeviceTarget
+    ) -> AdvancedTrackpadDeviceComposition {
+        switch target {
+        case .all:
+            availableComposition
+        case .builtIn:
+            AdvancedTrackpadDeviceComposition(
+                builtInCount: availableComposition.builtInCount,
+                externalCount: 0
+            )
+        case .external:
+            AdvancedTrackpadDeviceComposition(
+                builtInCount: 0,
+                externalCount: availableComposition.externalCount
+            )
+        }
     }
 }
 

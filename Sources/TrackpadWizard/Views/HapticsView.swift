@@ -271,6 +271,7 @@ struct HapticsView: View {
                     } label: {
                         Label("Save to Library", systemImage: "square.and.arrow.down")
                     }
+                    .disabled(!model.canSaveSelectedComposerPattern)
                 }
             }
         }
