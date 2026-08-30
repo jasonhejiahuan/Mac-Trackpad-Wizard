@@ -1,0 +1,186 @@
+name: Signed and Notarized DMG
+
+# Automatic CHANGELOG triggering is intentionally disabled until the first
+# public release. docs/RELEASING.md documents the small event block to enable.
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Create a public GitHub Release after notarization
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trackpad-wizard-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      build: ${{ steps.metadata.outputs.build }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      dmg_name: ${{ steps.metadata.outputs.dmg_name }}
+      release_title: ${{ steps.metadata.outputs.release_title }}
+      should_build: ${{ steps.guard.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate CHANGELOG and Xcode versions
+        id: metadata
+        run: |
+          chmod +x script/release_metadata.sh
+          script/release_metadata.sh check
+          script/release_metadata.sh github-output
+
+      - name: Skip an already released automatic version
+        id: guard
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]] \
+            && git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  notarized-dmg:
+    needs: metadata
+    if: needs.metadata.outputs.should_build == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required signing secrets
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_PASSWORD }}
+          NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          for variable in CERTIFICATE_BASE64 CERTIFICATE_PASSWORD NOTARY_KEY_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            if [[ -z "${!variable}" ]]; then
+              echo "Missing required repository secret for $variable" >&2
+              exit 1
+            fi
+          done
+
+      - name: Import Developer ID certificate
+        id: certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/trackpad-wizard-release.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id-application.p12"
+
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep '"Developer ID Application:.*(WBU2AFY549)"' \
+            | head -1 \
+            | sed -E 's/.*"([^"]+)".*/\1/')"
+          [[ -n "$SIGNING_IDENTITY" ]] || { echo "Developer ID Application identity was not imported" >&2; exit 1; }
+
+          echo "identity=$SIGNING_IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "keychain_path=$KEYCHAIN_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Build universal app and signed DMG
+        env:
+          RELEASE_SIGNING_IDENTITY: ${{ steps.certificate.outputs.identity }}
+        run: |
+          chmod +x script/release_metadata.sh script/create_dmg.sh script/release_local.sh
+          script/release_local.sh \
+            --package-only \
+            --output-dir "$RUNNER_TEMP/release"
+
+      - name: Submit, staple, and validate notarization
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          DMG_NAME: ${{ needs.metadata.outputs.dmg_name }}
+        run: |
+          NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"
+          DMG_PATH="$RUNNER_TEMP/release/$DMG_NAME"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$NOTARY_KEY_PATH"
+          chmod 600 "$NOTARY_KEY_PATH"
+
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait \
+            --timeout 30m
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          codesign --verify --verbose=2 "$DMG_PATH"
+          spctl --assess --verbose=2 --type open --context context:primary-signature "$DMG_PATH"
+
+          cd "$RUNNER_TEMP/release"
+          shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
+
+      - name: Prepare release notes
+        run: script/release_metadata.sh notes > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Upload notarized DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Trackpad-Wizard-${{ needs.metadata.outputs.version }}-${{ needs.metadata.outputs.build }}
+          path: |
+            ${{ runner.temp }}/release/${{ needs.metadata.outputs.dmg_name }}
+            ${{ runner.temp }}/release/${{ needs.metadata.outputs.dmg_name }}.sha256
+          if-no-files-found: error
+
+      - name: Create public GitHub Release
+        if: github.event_name == 'push' || inputs.publish_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_TITLE: ${{ needs.metadata.outputs.release_title }}
+          DMG_NAME: ${{ needs.metadata.outputs.dmg_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/release/$DMG_NAME" \
+            "$RUNNER_TEMP/release/$DMG_NAME.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Remove temporary signing material
+        if: always()
+        env:
+          KEYCHAIN_PATH: ${{ steps.certificate.outputs.keychain_path }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          if [[ -n "$KEYCHAIN_PATH" && -f "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+          rm -f \
+            "$RUNNER_TEMP/developer-id-application.p12" \
+            "$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"

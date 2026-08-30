@@ -2,7 +2,17 @@
 
 All notable changes to Trackpad Wizard are documented here.
 
-## 0.2.0 - 2026-08-28
+Each release heading is the source of truth for both Apple bundle values: the marketing version and its monotonically increasing build number.
+
+## Version 0.2.1 (Build 3) - 2026-08-30
+
+- Added explicit light foreground fills for every Icon Composer layer in Dark appearance.
+- Restored explicit `CFBundleIconName` and `CFBundleIconFile` metadata so Xcode Build & Run uses the layered icon and its generated ICNS fallback consistently.
+- Reframed third-party documentation around product inspiration followed by independent research, and removed the prior-arrangement contribution restriction.
+- Added an adaptive Developer ID-signed, notarized, stapled, and signed-DMG release pipeline with a minimal Retina installer background.
+- Kept the GitHub release workflow manual-only until the first public release; its CHANGELOG trigger can be enabled later without changing the packaging path.
+
+## Version 0.2.0 (Build 2) - 2026-08-28
 
 - Unified enhanced raw touch and direct actuator control behind a compact, global Enhanced Mode switch with shared device targeting.
 - Added optional process-scoped system-gesture suppression that automatically disappears after crash or force-quit and never edits trackpad preferences.
@@ -28,7 +38,7 @@ All notable changes to Trackpad Wizard are documented here.
 - Added a native Xcode project and explicit app metadata so Xcode builds consistently include the application icon.
 - Relicensed the project under MPL-2.0 and expanded third-party research notices.
 
-## 0.1.0 - 2026-08-27
+## Version 0.1.0 (Build 1) - 2026-08-27
 
 - Initial native SwiftUI macOS application.
 - Added Touch Lab, Gesture Studio, Haptic Composer, mappings, and device diagnostics.

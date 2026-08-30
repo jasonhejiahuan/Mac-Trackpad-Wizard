@@ -29,6 +29,45 @@ DERIVED_DATA="$ROOT_DIR/.build/XcodeDerivedData"
 PROJECT="$ROOT_DIR/TrackpadWizard.xcodeproj"
 DESTINATION="platform=macOS,arch=$(uname -m)"
 
+for release_script in \
+  "$ROOT_DIR/script/release_metadata.sh" \
+  "$ROOT_DIR/script/create_dmg.sh" \
+  "$ROOT_DIR/script/release_local.sh"; do
+  /bin/bash -n "$release_script"
+done
+
+"$ROOT_DIR/script/release_metadata.sh" check
+/usr/bin/plutil -lint "$ROOT_DIR/Config/Info.plist" >/dev/null
+
+/usr/bin/python3 - "$ROOT_DIR/Assets/TrackpadWizard.icon/icon.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as icon_file:
+    icon = json.load(icon_file)
+
+layers = [layer for group in icon["groups"] for layer in group["layers"]]
+if len(layers) != 6:
+    raise SystemExit("the Icon Composer source must retain six independent layers")
+
+for layer in layers:
+    specializations = {
+        specialization["appearance"]: specialization["value"]
+        for specialization in layer.get("fill-specializations", [])
+    }
+    if specializations.get("dark") != "system-light":
+        raise SystemExit(f"{layer['name']} is missing its System Light dark fill")
+PY
+
+if [[ "$(/usr/bin/sips -g pixelWidth -g pixelHeight "$ROOT_DIR/Assets/DMG/dmg-background.png" 2>/dev/null | tail -2 | tr '\n' ' ')" != *"pixelWidth: 600"*"pixelHeight: 400"* ]]; then
+  echo "The 1x DMG background must be 600x400." >&2
+  exit 1
+fi
+if [[ "$(/usr/bin/sips -g pixelWidth -g pixelHeight "$ROOT_DIR/Assets/DMG/dmg-background@2x.png" 2>/dev/null | tail -2 | tr '\n' ' ')" != *"pixelWidth: 1200"*"pixelHeight: 800"* ]]; then
+  echo "The 2x DMG background must be 1200x800." >&2
+  exit 1
+fi
+
 "$SWIFT_BIN" test --package-path "$ROOT_DIR"
 "$SWIFT_BIN" build --package-path "$ROOT_DIR" -c release
 
@@ -57,8 +96,16 @@ if [[ "$(plutil -extract CFBundleIconName raw -o - "$APP_INFO_PLIST")" != "Track
   echo "The Release app is not configured to use the Icon Composer app icon." >&2
   exit 1
 fi
+if [[ "$(plutil -extract CFBundleIconFile raw -o - "$APP_INFO_PLIST")" != "TrackpadWizard" ]]; then
+  echo "The Release app is missing the explicit ICNS fallback declaration." >&2
+  exit 1
+fi
 if [[ ! -f "$APP_ASSET_CATALOG" ]]; then
   echo "The compiled Icon Composer asset catalog is missing." >&2
+  exit 1
+fi
+if [[ ! -f "$APP_BUNDLE/Contents/Resources/TrackpadWizard.icns" ]]; then
+  echo "The generated ICNS fallback is missing from the app bundle." >&2
   exit 1
 fi
 ASSETUTIL_BIN="$(/usr/bin/xcrun --find assetutil)"

@@ -73,6 +73,8 @@ The bundle version is automatic: Xcode reads `MARKETING_VERSION` and `CURRENT_PR
 
 The assembled app is signed with hardened runtime enabled and then checked with `codesign --verify --deep --strict`. Local Development signing is suitable for development and testing. Public distribution additionally requires a Developer ID archive, secure timestamping, notarization, and stapling; those credentials are deliberately not part of this repository.
 
+The manual-only GitHub workflow and local release script now share the same version validation, universal Developer ID build, signed DMG layout, notarization, stapling, Gatekeeper assessment, and checksum path. See [`docs/RELEASING.md`](docs/RELEASING.md) before the first public release. Automatic CHANGELOG triggering remains disabled.
+
 `script/check.sh` uses the same Xcode selection logic, runs SwiftPM and Xcode tests, performs an optimized Xcode Release build, and verifies that the resulting app is signed by Apple Development.
 
 Edit the layered app icon in `Assets/TrackpadWizard.icon` with Icon Composer. Its six SVG layers preserve separate Liquid Glass behavior and Default, Dark, tinted, and clear renditions. Regenerate the repository preview PNG and legacy ICNS fallback with:
@@ -85,7 +87,9 @@ Edit the layered app icon in `Assets/TrackpadWizard.icon` with Icon Composer. It
 
 Trackpad Wizard never opens a permission prompt during model initialization or before the main window appears. Accessibility is requested only from the user-facing **Request Access…** button and is needed to post keyboard shortcuts or run the optional process-scoped gesture filter. Touch inspection, device diagnostics, haptic playback, and vibration statistics do not require Accessibility.
 
-## Research basis
+## Inspiration and research basis
+
+The project began with inspiration from tactile trackpad utilities and then independently researched the following public documentation and open-source references:
 
 - Apple’s [`NSHapticFeedbackManager`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) defines the public fallback and its three patterns.
 - [`HapticKey`](https://github.com/niw/HapticKey) documents the private actuator ABI’s two floating-point parameters and provides a long-lived compatibility reference.

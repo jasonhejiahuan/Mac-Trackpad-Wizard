@@ -1,6 +1,6 @@
-# Third-Party Research Notices
+# Third-Party Inspiration and Research Notices
 
-Trackpad Wizard does not vendor or link source code from the projects below. They were inspected as interoperability and implementation references.
+Trackpad Wizard began with product inspiration from the projects below, followed by independent interoperability and implementation research. It does not incorporate or link against their source code.
 
 ## HapticKey
 
