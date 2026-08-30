@@ -8,11 +8,19 @@ struct ContentView: View {
             SidebarView(
                 selection: $model.selection,
                 deviceCount: model.connectedTrackpadCount,
+                experimentalFeatureCount: model.advancedFeatures.enabledFeatureCount,
                 showsHints: model.showInterfaceHints
             )
                 .navigationSplitViewColumnWidth(min: 210, ideal: 238, max: 280)
         } detail: {
-            detail
+            VStack(spacing: 0) {
+                EnhancedModeBar(model: model)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
+
+                detail
+            }
                 .navigationTitle(model.selection.title)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
@@ -60,6 +68,20 @@ struct ContentView: View {
                 }
                 .animation(.snappy, value: model.statusMessage)
         }
+        .sheet(item: pendingAdvancedConfirmation) { confirmation in
+            AdvancedRecoveryDialog(
+                confirmation: confirmation,
+                restore: {
+                    model.advancedFeatures.restorePendingChange()
+                    model.statusMessage = model.advancedFeatures.lastMessage
+                },
+                continueUsing: {
+                    model.advancedFeatures.confirmPendingChange()
+                    model.statusMessage = model.advancedFeatures.lastMessage
+                }
+            )
+            .interactiveDismissDisabled()
+        }
     }
 
     @ViewBuilder
@@ -75,9 +97,24 @@ struct ContentView: View {
             HapticsView(model: model)
         case .mappings:
             MappingsView(model: model)
+        case .advanced:
+            AdvancedFeaturesView(model: model)
+        case .statistics:
+            StatisticsView(model: model)
         case .devices:
             DevicesView(model: model)
         }
+    }
+
+    private var pendingAdvancedConfirmation: Binding<AdvancedFeatureConfirmation?> {
+        Binding(
+            get: { model.advancedFeatures.pendingConfirmation },
+            set: { newValue in
+                if newValue == nil, model.advancedFeatures.pendingConfirmation != nil {
+                    model.advancedFeatures.restorePendingChange()
+                }
+            }
+        )
     }
 }
 

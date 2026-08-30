@@ -49,4 +49,29 @@ struct TrackpadSetting: Identifiable, Codable, Hashable, Sendable {
     let value: String
 
     var id: String { key }
+
+    var indicator: TrackpadSettingIndicator {
+        if value == "Off" { return .disabled }
+        if value == "On" || value.hasPrefix("On (") { return .enabled }
+        if ["Light", "Medium", "Firm"].contains(value) || value.hasPrefix("Level ") {
+            return .level
+        }
+        return .reported
+    }
+}
+
+enum TrackpadSettingIndicator: Equatable, Sendable {
+    case enabled
+    case disabled
+    case level
+    case reported
+
+    var systemImage: String {
+        switch self {
+        case .enabled: "checkmark.circle.fill"
+        case .disabled: "minus.circle"
+        case .level: "circle.lefthalf.filled"
+        case .reported: "info.circle"
+        }
+    }
 }

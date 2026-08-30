@@ -154,3 +154,85 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
+
+struct AdaptiveColumnsLayout: Layout {
+    var breakpoint: CGFloat = 860
+    var spacing: CGFloat = 18
+    var trailingWidth: CGFloat = 330
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        guard subviews.count >= 2 else {
+            return subviews.first?.sizeThatFits(proposal) ?? .zero
+        }
+        let proposedWidth = proposal.width ?? breakpoint
+        if proposedWidth >= breakpoint {
+            let leadingWidth = max(260, proposedWidth - trailingWidth - spacing)
+            let leading = subviews[0].sizeThatFits(
+                ProposedViewSize(width: leadingWidth, height: proposal.height)
+            )
+            let trailing = subviews[1].sizeThatFits(
+                ProposedViewSize(width: trailingWidth, height: proposal.height)
+            )
+            return CGSize(width: proposedWidth, height: max(leading.height, trailing.height))
+        }
+
+        let leading = subviews[0].sizeThatFits(
+            ProposedViewSize(width: proposedWidth, height: nil)
+        )
+        let trailing = subviews[1].sizeThatFits(
+            ProposedViewSize(width: proposedWidth, height: nil)
+        )
+        return CGSize(
+            width: proposedWidth,
+            height: leading.height + spacing + trailing.height
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard subviews.count >= 2 else {
+            subviews.first?.place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: proposal
+            )
+            return
+        }
+
+        if bounds.width >= breakpoint {
+            let leadingWidth = max(260, bounds.width - trailingWidth - spacing)
+            subviews[0].place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: leadingWidth, height: nil)
+            )
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX + leadingWidth + spacing, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: trailingWidth, height: nil)
+            )
+        } else {
+            let leadingSize = subviews[0].sizeThatFits(
+                ProposedViewSize(width: bounds.width, height: nil)
+            )
+            subviews[0].place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width, height: leadingSize.height)
+            )
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY + leadingSize.height + spacing),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width, height: nil)
+            )
+        }
+    }
+}

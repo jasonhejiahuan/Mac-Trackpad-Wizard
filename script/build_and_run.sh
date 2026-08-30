@@ -4,30 +4,13 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="TrackpadWizard"
 DISPLAY_NAME="Trackpad Wizard"
-BUNDLE_ID="com.jasonstu.trackpadwizard"
-MIN_SYSTEM_VERSION="26.0"
+BUNDLE_ID="cc.jasonstu.trackpadwizard"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$DISPLAY_NAME.app"
-APP_CONTENTS="$APP_BUNDLE/Contents"
-APP_MACOS="$APP_CONTENTS/MacOS"
-APP_RESOURCES="$APP_CONTENTS/Resources"
-APP_BINARY="$APP_MACOS/$APP_NAME"
-INFO_PLIST="$APP_CONTENTS/Info.plist"
-
-VERSION_TAG="$(git -C "$ROOT_DIR" describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
-if [[ -n "$VERSION_TAG" ]]; then
-  MARKETING_VERSION="${VERSION_TAG#v}"
-else
-  MARKETING_VERSION="$(awk '/^## [0-9]+\.[0-9]+\.[0-9]+ / { print $2; exit }' "$ROOT_DIR/CHANGELOG.md")"
-fi
-BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
-
-if [[ -z "$MARKETING_VERSION" || -z "$BUILD_NUMBER" ]]; then
-  echo "Unable to derive bundle version from Git metadata and CHANGELOG.md" >&2
-  exit 1
-fi
+PROJECT="$ROOT_DIR/TrackpadWizard.xcodeproj"
+DERIVED_DATA="$ROOT_DIR/.build/XcodeRunDerivedData"
 
 if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode-beta.app/Contents/Developer ]]; then
   export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
@@ -35,65 +18,45 @@ elif [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer
   export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
 
-SWIFT_BIN="${DEVELOPER_DIR:+$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/}swift"
-if [[ ! -x "$SWIFT_BIN" ]]; then
-  SWIFT_BIN="$(command -v swift)"
+XCODEBUILD_BIN="${DEVELOPER_DIR:+$DEVELOPER_DIR/usr/bin/}xcodebuild"
+if [[ ! -x "$XCODEBUILD_BIN" ]]; then
+  XCODEBUILD_BIN="$(xcrun --find xcodebuild)"
 fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-"$SWIFT_BIN" build --package-path "$ROOT_DIR"
-BUILD_BIN_PATH="$("$SWIFT_BIN" build --package-path "$ROOT_DIR" --show-bin-path)"
-BUILD_BINARY="$BUILD_BIN_PATH/$APP_NAME"
+"$XCODEBUILD_BIN" \
+  -quiet \
+  -project "$PROJECT" \
+  -scheme TrackpadWizard \
+  -configuration Debug \
+  -destination "platform=macOS,arch=$(uname -m)" \
+  -derivedDataPath "$DERIVED_DATA" \
+  build
 
+BUILT_APP="$DERIVED_DATA/Build/Products/Debug/$DISPLAY_NAME.app"
+if [[ ! -d "$BUILT_APP" ]]; then
+  echo "Xcode did not produce $BUILT_APP" >&2
+  exit 1
+fi
+
+mkdir -p "$DIST_DIR"
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
-cp "$BUILD_BINARY" "$APP_BINARY"
-chmod +x "$APP_BINARY"
+/usr/bin/ditto "$BUILT_APP" "$APP_BUNDLE"
 
-cat >"$INFO_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleExecutable</key>
-  <string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key>
-  <string>$BUNDLE_ID</string>
-  <key>CFBundleDisplayName</key>
-  <string>$DISPLAY_NAME</string>
-  <key>CFBundleName</key>
-  <string>$DISPLAY_NAME</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>$MARKETING_VERSION</string>
-  <key>CFBundleVersion</key>
-  <string>$BUILD_NUMBER</string>
-  <key>LSApplicationCategoryType</key>
-  <string>public.app-category.utilities</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>$MIN_SYSTEM_VERSION</string>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-PLIST
-
-if [[ -f "$ROOT_DIR/Assets/TrackpadWizard.icns" ]]; then
-  cp "$ROOT_DIR/Assets/TrackpadWizard.icns" "$APP_RESOURCES/TrackpadWizard.icns"
-  /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string TrackpadWizard" "$INFO_PLIST"
-fi
-
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -1)}"
-if [[ -n "$SIGNING_IDENTITY" ]]; then
-  codesign --force --options runtime --timestamp=none --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE"
-else
-  codesign --force --options runtime --timestamp=none --sign - --identifier "$BUNDLE_ID" "$APP_BUNDLE"
-fi
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
+SIGNATURE_DETAILS="$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1)"
+if ! grep -q '^Authority=Apple Development:' <<<"$SIGNATURE_DETAILS"; then
+  echo "The Xcode run build was not signed with Apple Development." >&2
+  exit 1
+fi
+if ! grep -q '^TeamIdentifier=WBU2AFY549$' <<<"$SIGNATURE_DETAILS"; then
+  echo "The Xcode run build was not signed for the configured development team." >&2
+  exit 1
+fi
+
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

@@ -14,6 +14,9 @@ struct TrackpadWizardApp: App {
                     appDelegate.onTerminate = {
                         model.shutDown()
                     }
+                    appDelegate.onResignActive = {
+                        model.handleAppDidResignActive()
+                    }
                 }
         }
         .defaultSize(width: 1240, height: 820)
@@ -25,12 +28,26 @@ struct TrackpadWizardApp: App {
         Settings {
             SettingsView(model: model)
         }
+
+        Window("Touch Preview", id: "touch-preview") {
+            TouchPreviewView(model: model)
+                .frame(minWidth: 680, minHeight: 500)
+        }
+        .defaultSize(width: 1080, height: 760)
+        .windowResizability(.contentMinSize)
+
+        Window("About Trackpad Wizard", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (() -> Void)?
+    var onResignActive: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -40,12 +57,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         onTerminate?()
     }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        onResignActive?()
+    }
 }
 
 struct TrackpadWizardCommands: Commands {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Trackpad Wizard") {
+                openWindow(id: "about")
+            }
+        }
+
         CommandMenu("Trackpad") {
             ForEach(AppSection.allCases) { section in
                 Button("Open \(section.title)") {
@@ -70,6 +98,13 @@ struct TrackpadWizardCommands: Commands {
                 model.clearSession()
             }
             .keyboardShortcut(.delete, modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Open Touch Preview") {
+                openWindow(id: "touch-preview")
+            }
+            .keyboardShortcut("f", modifiers: [.command, .option])
         }
     }
 }

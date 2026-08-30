@@ -16,8 +16,13 @@ struct GestureStudioView: View {
                     }
                 }
 
+                TouchPreviewControls(model: model, showsRestingTouches: true)
+
                 GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 190), spacing: 12)],
+                        spacing: 12
+                    ) {
                         MetricTile(
                             title: "Magnification",
                             value: signed(model.liveMagnification, digits: 3),
@@ -47,7 +52,7 @@ struct GestureStudioView: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 18) {
+                AdaptiveColumnsLayout(breakpoint: 900, spacing: 18, trailingWidth: 360) {
                     VStack(spacing: 14) {
                         InteractiveTrackpadSurface(model: model)
 
@@ -61,13 +66,11 @@ struct GestureStudioView: View {
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity)
 
                     VStack(spacing: 14) {
                         recognizedCard
                         eventStreamCard
                     }
-                    .frame(width: 360)
                 }
             }
             .pageLayout()
