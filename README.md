@@ -3,6 +3,7 @@
 [![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black?logo=apple)](https://www.apple.com/macos/)
 [![Swift 6.2+](https://img.shields.io/badge/Swift-6.2%2B-F05138?logo=swift&logoColor=white)](https://www.swift.org/)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue)](LICENSE)
+[![Signed and Notarized Latest Release DMG](https://github.com/jasonhejiahuan/Mac-Trackpad-Wizard/actions/workflows/release.yml/badge.svg)](https://github.com/jasonhejiahuan/Mac-Trackpad-Wizard/actions/workflows/release.yml)
 
 Trackpad Wizard is a native SwiftUI macOS utility for exploring the built-in trackpad and external Magic Trackpads. It combines public AppKit behavior with a clearly separated, session-only experimental engine for capabilities Apple does not expose publicly.
 
