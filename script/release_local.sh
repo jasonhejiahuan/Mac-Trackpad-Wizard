@@ -100,6 +100,18 @@ mkdir -p "$ARCHIVE_DIR" "$OUTPUT_DIR"
 APP_PATH="$ARCHIVE_PATH/Products/Applications/Trackpad Wizard.app"
 [[ -d "$APP_PATH" ]] || { echo "archive did not contain Trackpad Wizard.app" >&2; exit 1; }
 
+APP_EXECUTABLE_NAME="$(plutil -extract CFBundleExecutable raw -o - "$APP_PATH/Contents/Info.plist")"
+APP_EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_EXECUTABLE_NAME"
+[[ -f "$APP_EXECUTABLE_PATH" ]] || { echo "archive executable was not found: $APP_EXECUTABLE_PATH" >&2; exit 1; }
+APP_ARCHITECTURES="$(xcrun lipo -archs "$APP_EXECUTABLE_PATH")"
+for required_architecture in arm64 x86_64; do
+  if ! grep -qw "$required_architecture" <<<"$APP_ARCHITECTURES"; then
+    echo "archive executable is not Universal 2: missing $required_architecture (found: $APP_ARCHITECTURES)" >&2
+    exit 1
+  fi
+done
+echo "Verified Universal 2 executable architectures: $APP_ARCHITECTURES"
+
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 APP_SIGNATURE="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
 grep -q '^Authority=Developer ID Application:' <<<"$APP_SIGNATURE" || { echo "archive is not Developer ID signed" >&2; exit 1; }

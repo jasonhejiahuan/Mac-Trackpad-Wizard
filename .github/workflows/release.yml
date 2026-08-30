@@ -1,8 +1,10 @@
 name: Signed and Notarized DMG
 
-# Automatic CHANGELOG triggering is intentionally disabled until the first
-# public release. docs/RELEASING.md documents the small event block to enable.
 on:
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
   workflow_dispatch:
     inputs:
       publish_release:
@@ -29,6 +31,12 @@ jobs:
       release_title: ${{ steps.metadata.outputs.release_title }}
       should_build: ${{ steps.guard.outputs.should_build }}
     steps:
+      - name: Require main for a public manual release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true && github.ref != 'refs/heads/main'
+        run: |
+          echo "A public GitHub Release can only be created from refs/heads/main; received $GITHUB_REF." >&2
+          exit 1
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

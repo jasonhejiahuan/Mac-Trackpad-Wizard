@@ -10,7 +10,7 @@ Each release heading is the source of truth for both Apple bundle values: the ma
 - Restored explicit `CFBundleIconName` and `CFBundleIconFile` metadata so Xcode Build & Run uses the layered icon and its generated ICNS fallback consistently.
 - Reframed third-party documentation around product inspiration followed by independent research, and removed the prior-arrangement contribution restriction.
 - Added an adaptive Developer ID-signed, notarized, stapled, and signed-DMG release pipeline with a minimal Retina installer background.
-- Kept the GitHub release workflow manual-only until the first public release; its CHANGELOG trigger can be enabled later without changing the packaging path.
+- Enabled automatic GitHub releases when `CHANGELOG.md` changes on `main`, while retaining default-off manual publishing.
 
 ## Version 0.2.0 (Build 2) - 2026-08-28
 

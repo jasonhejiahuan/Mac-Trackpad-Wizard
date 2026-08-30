@@ -31,7 +31,7 @@ The second command submits the signed DMG, waits for acceptance, staples the tic
 
 ## GitHub Actions credentials
 
-The manual workflow requires these repository secrets:
+The release workflow requires these repository secrets:
 
 - `DEVELOPER_ID_APPLICATION_CERT_BASE64` — base64-encoded `.p12` containing the Developer ID Application certificate and private key.
 - `DEVELOPER_ID_APPLICATION_CERT_PASSWORD` — password for that `.p12`.
@@ -43,15 +43,6 @@ The workflow uses a temporary Keychain and deletes it after the job. It always u
 
 ## Automatic releases
 
-Automatic triggering is intentionally disabled before the first public release. When it is time to enable it, add this event next to `workflow_dispatch` in `.github/workflows/release.yml`:
-
-```yaml
-push:
-  branches: [main]
-  paths:
-    - CHANGELOG.md
-```
-
-The existing guard skips a push when the top CHANGELOG version/build tag already exists. A new top release heading therefore follows the same signed, notarized, stapled DMG path as a manual run.
+A push to `main` that changes `CHANGELOG.md` starts the release workflow. The existing guard skips the build when the top CHANGELOG version/build tag already exists, so a new top release heading follows the same signed, notarized, stapled DMG path as a manual run.
 
 The installer artwork is stored as 1x and 2x PNGs in `Assets/DMG`. The layout script embeds both files and uses the 1x asset as the Finder background while macOS selects the Retina companion when appropriate.
