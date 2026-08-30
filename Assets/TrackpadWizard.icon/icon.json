@@ -6,16 +6,34 @@
     {
       "layers" : [
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
           "image-name" : "contact-right.svg",
           "name" : "Right Contact",
           "opacity" : 0.82
         },
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
           "image-name" : "contact-center.svg",
           "name" : "Center Contact",
           "opacity" : 1
         },
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
           "image-name" : "contact-left.svg",
           "name" : "Left Contact",
           "opacity" : 0.7
@@ -34,16 +52,34 @@
     {
       "layers" : [
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
           "image-name" : "ripple-tertiary.svg",
           "name" : "Tertiary Ripple",
           "opacity" : 0.48
         },
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
           "image-name" : "ripple-secondary.svg",
           "name" : "Secondary Ripple",
           "opacity" : 0.7
         },
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
           "image-name" : "ripple-primary.svg",
           "name" : "Primary Ripple",
           "opacity" : 0.96

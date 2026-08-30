@@ -1,7 +1,5 @@
 # Contributing
 
-Trackpad Wizard currently accepts changes by prior arrangement with the copyright holder.
-
 ## Development requirements
 
 - macOS 26 or later
