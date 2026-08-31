@@ -48,7 +48,7 @@ private struct AdvancedFeaturesContent: View {
                             "No Experimental Controls Enabled",
                             systemImage: "slider.horizontal.3",
                             description: Text(
-                                "Enable a feature flag in Settings › Experimental. Disabled flags keep their controls hidden and restore macOS defaults."
+                                "Enable a feature flag in Settings › Experimental. Disabled flags keep their controls hidden and do not load the private controller unless recovery is required."
                             )
                         )
                         .frame(minHeight: 270)
@@ -144,16 +144,20 @@ private struct AdvancedFeaturesContent: View {
 
                 HStack {
                     Label(
-                        store.systemHapticFeedbackEnabled ? "System feedback on" : "System feedback paused",
-                        systemImage: store.systemHapticFeedbackEnabled ? "speaker.wave.2" : "speaker.slash"
+                        systemHapticStatus,
+                        systemImage: store.systemHapticsMixedState
+                            ? "circle.lefthalf.filled"
+                            : (store.systemHapticFeedbackEnabled ? "speaker.wave.2" : "speaker.slash")
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Restore On") {
-                        model.restoreSystemHapticsDefault()
+                    if store.hasManagedSystemHapticsOverride {
+                        Button("Restore macOS Default") {
+                            model.restoreSystemHapticsDefault()
+                        }
+                        .disabled(store.pendingConfirmation != nil)
                     }
-                    .disabled(store.systemHapticFeedbackEnabled)
                 }
             }
         }
@@ -171,7 +175,7 @@ private struct AdvancedFeaturesContent: View {
                 InlineNotice(
                     systemImage: "arrow.uturn.backward.circle",
                     title: "Session scoped",
-                    message: "Disabling a feature flag, changing target, or quitting normally restores the macOS default. Custom private settings are never applied automatically at launch; an incomplete-session marker can only trigger a default restore."
+                    message: "Native private overrides are restored when their flag is disabled, the target changes, or the app quits. App-only 90° and 270° coordinates can persist without changing macOS. An incomplete-session marker can only trigger recovery for a previously managed target."
                 )
                 Divider()
                 InlineNotice(
@@ -195,6 +199,13 @@ private struct AdvancedFeaturesContent: View {
             get: { store.systemHapticFeedbackEnabled },
             set: { model.requestSystemHapticFeedback(enabled: $0) }
         )
+    }
+
+    private var systemHapticStatus: String {
+        if store.systemHapticsMixedState {
+            return "Mixed across selected trackpads"
+        }
+        return store.systemHapticFeedbackEnabled ? "System feedback on" : "System feedback paused"
     }
 }
 

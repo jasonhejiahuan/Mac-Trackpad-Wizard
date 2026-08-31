@@ -38,13 +38,14 @@ The app targets macOS 26 or later and follows current macOS window, sidebar, Liq
 - **Statistics** — track exact successful actuator calls per locally pseudonymized trackpad, including daily graphs, lifetime totals, collection controls, and reset.
 - **Devices** — inspect live I/O Registry discovery, transport, reported battery, Force Touch support, report interval and rate, USB VID/PID, and current macOS trackpad preferences.
 - **Advanced Features** — separately gated surface-orientation and system-haptic controls include per-change confirmation and an automatic 10-second rollback.
+- **Updates** — check GitHub Releases manually or daily, optionally download the notarized DMG automatically, verify its published SHA-256 checksum, and hand installation to macOS.
 - **Local-first behavior** — touch data stays on the Mac unless a session is explicitly exported.
 
 ## System mode and Enhanced Mode
 
 | Capability | System mode | Enhanced Mode |
 | --- | --- | --- |
-| Haptic API | Direct actuator output is off | Runtime-loaded `MultitouchSupport.framework` actuator |
+| Haptic API | Direct actuator output and its private runtime are unloaded | On-demand `MultitouchSupport.framework` actuator |
 | Available patterns | None sent by this app | Empirical waveform IDs 1–6, 15, and 16 |
 | Amplitude | Not applicable | Normalized 0–100% empirical waveform multiplier |
 | Frequency | Not applicable | Direct 8–120 Hz pulse-repetition control |
@@ -58,7 +59,7 @@ Apple’s public haptic API does not expose strength, duration, arbitrary wavefo
 
 Enhanced amplitude uses the private actuator call’s floating-point waveform multiplier. Frequency controls pulse repetition rather than the actuator’s internal carrier: the hardware still renders an empirical base waveform and may quantize the physical result. Presets use amplitude envelopes instead of relying only on coarse strong, medium, and weak waveform changes. **Quiet Click** is intentionally restrained and inspired by macOS Silent Clicking, but it neither changes the system preference nor claims to reproduce Apple’s private tuning exactly.
 
-Explicit routing never falls back silently. If the selected built-in or external trackpad is unavailable, Trackpad Wizard does not actuate a different device. Enhanced Mode is off after every launch, stops during app termination, and by default also stops when the app becomes inactive; the background behavior can be changed in Settings.
+Explicit routing never falls back silently. If the selected built-in or external trackpad is unavailable, Trackpad Wizard does not actuate a different device. Enhanced Mode is off after every launch, stops during app termination, and by default also stops when the app becomes inactive; Settings can optionally restore that paused session when the app becomes active again.
 
 ### Gesture filtering and experimental controls
 
@@ -69,7 +70,7 @@ Advanced Features are exposed through separate Experimental Settings flags:
 - **Surface Orientation** uses `MTDeviceSetSurfaceOrientation` for native 0° and 180° operation. The 90° and 270° choices are clearly labeled as Trackpad Wizard coordinate rotations.
 - **System Haptic Feedback** uses `MTActuatorSetSystemActuationsEnabled`.
 
-Every advanced change captures its previous state, opens a 10-second recovery dialog, restores automatically unless **Continue** is chosen, and records a default-recovery marker until normal cleanup succeeds.
+Every advanced change captures its previous state, opens a 10-second recovery dialog, restores automatically unless **Continue** is chosen, and records a default-recovery marker until normal cleanup succeeds. With both flags off and no recovery pending, the advanced private controller is not loaded.
 
 ## Privacy and permission behavior
 
@@ -107,7 +108,7 @@ Xcode reads `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from the project. 
 
 The assembled app uses hardened runtime and is checked with `codesign --verify --deep --strict`. Local Development signing is intended for development and testing. Public distribution additionally requires a Developer ID archive, secure timestamping, notarization, and stapling; those credentials are deliberately absent from this repository.
 
-The manual GitHub workflow and local release script share the same version validation, universal Developer ID build, signed DMG layout, notarization, stapling, Gatekeeper assessment, and checksum path. Automatic CHANGELOG triggering remains disabled. Read [docs/RELEASING.md](docs/RELEASING.md) before the first public release.
+The GitHub workflow and local release script share the same version validation, universal Developer ID build, signed DMG layout, notarization, stapling, Gatekeeper assessment, and checksum path. A `CHANGELOG.md` change merged to `main` automatically publishes the matching release; manual publishing remains available but defaults off. Read [docs/RELEASING.md](docs/RELEASING.md) before publishing.
 
 `script/check.sh` uses the same Xcode-selection logic, runs SwiftPM and Xcode tests, performs an optimized Xcode Release build, and verifies that the resulting app is signed by Apple Development.
 

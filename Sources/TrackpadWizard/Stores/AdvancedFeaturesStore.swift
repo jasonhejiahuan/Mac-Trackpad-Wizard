@@ -8,11 +8,14 @@ final class AdvancedFeaturesStore {
     private(set) var systemHapticsFeatureEnabled: Bool
     private(set) var selectedSurfaceOrientation: ExperimentalSurfaceOrientation = .degrees0
     private(set) var systemHapticFeedbackEnabled = true
+    private(set) var systemHapticsMixedState = false
     private(set) var pendingConfirmation: AdvancedFeatureConfirmation?
     private(set) var lastMessage: String?
 
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let controller: any AdvancedTrackpadControlling
+    @ObservationIgnored private var controller: (any AdvancedTrackpadControlling)?
+    @ObservationIgnored private let controllerFactory: @MainActor () -> any AdvancedTrackpadControlling
+    @ObservationIgnored private let ownsController: Bool
     @ObservationIgnored private let recoveryInterval: TimeInterval
     @ObservationIgnored private var recoveryTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRollback: PendingRollback?
@@ -24,6 +27,7 @@ final class AdvancedFeaturesStore {
         static let systemHapticsFeature = "experimentalSystemHapticsFeatureEnabled"
         static let surfaceRecoveryTarget = "experimentalSurfaceOrientationRecoveryTarget"
         static let systemHapticsRecoveryTarget = "experimentalSystemHapticsRecoveryTarget"
+        static let appCoordinateOrientation = "experimentalAppCoordinateOrientation"
     }
 
     private enum PendingRollback {
@@ -35,6 +39,7 @@ final class AdvancedFeaturesStore {
         case systemHaptics(
             snapshot: SystemHapticsSnapshot,
             previous: Bool,
+            previousMixedState: Bool,
             previousHadOverride: Bool
         )
 
@@ -48,21 +53,48 @@ final class AdvancedFeaturesStore {
 
     init(
         defaults: UserDefaults = .standard,
-        controller: any AdvancedTrackpadControlling = AdvancedTrackpadController(),
+        controller: (any AdvancedTrackpadControlling)? = nil,
+        controllerFactory: @escaping @MainActor () -> any AdvancedTrackpadControlling = {
+            AdvancedTrackpadController()
+        },
         recoveryInterval: TimeInterval = 10
     ) {
         self.defaults = defaults
         self.controller = controller
+        ownsController = controller == nil
+        if let controller {
+            self.controllerFactory = { controller }
+        } else {
+            self.controllerFactory = controllerFactory
+        }
         self.recoveryInterval = recoveryInterval
-        surfaceOrientationFeatureEnabled = defaults.bool(forKey: DefaultsKey.surfaceOrientationFeature)
-            && controller.supportsSurfaceOrientation
-        systemHapticsFeatureEnabled = defaults.bool(forKey: DefaultsKey.systemHapticsFeature)
-            && controller.supportsSystemHaptics
+        surfaceOrientationFeatureEnabled = false
+        systemHapticsFeatureEnabled = false
+
+        let requestedSurfaceFeature = defaults.bool(forKey: DefaultsKey.surfaceOrientationFeature)
+        let requestedSystemHapticsFeature = defaults.bool(forKey: DefaultsKey.systemHapticsFeature)
+        let hasRecoveryMarker = defaults.object(forKey: DefaultsKey.surfaceRecoveryTarget) != nil
+            || defaults.object(forKey: DefaultsKey.systemHapticsRecoveryTarget) != nil
+        if requestedSurfaceFeature || requestedSystemHapticsFeature || hasRecoveryMarker {
+            let controller = resolvedController()
+            surfaceOrientationFeatureEnabled = requestedSurfaceFeature
+                && controller.supportsSurfaceOrientation
+            systemHapticsFeatureEnabled = requestedSystemHapticsFeature
+                && controller.supportsSystemHaptics
+        }
+        if surfaceOrientationFeatureEnabled,
+           let savedOrientation = ExperimentalSurfaceOrientation(
+               rawValue: defaults.integer(forKey: DefaultsKey.appCoordinateOrientation)
+           ),
+           !savedOrientation.usesNativeOrientation {
+            selectedSurfaceOrientation = savedOrientation
+        }
         recoverUncleanSessionIfNeeded()
+        releaseControllerIfIdle()
     }
 
-    var supportsSurfaceOrientation: Bool { controller.supportsSurfaceOrientation }
-    var supportsSystemHaptics: Bool { controller.supportsSystemHaptics }
+    var supportsSurfaceOrientation: Bool { controller?.supportsSurfaceOrientation ?? true }
+    var supportsSystemHaptics: Bool { controller?.supportsSystemHaptics ?? true }
 
     var enabledFeatureCount: Int {
         (surfaceOrientationFeatureEnabled ? 1 : 0) + (systemHapticsFeatureEnabled ? 1 : 0)
@@ -72,20 +104,30 @@ final class AdvancedFeaturesStore {
         selectedSurfaceOrientation.previewRotationDegrees
     }
 
+    var hasManagedSystemHapticsOverride: Bool {
+        systemHapticsHasActiveOverride || recoveryMarker(for: .systemHaptics) != nil
+    }
+
     @discardableResult
     func setSurfaceOrientationFeatureEnabled(
         _ enabled: Bool,
         target: HapticDeviceTarget
     ) -> Bool {
-        guard !enabled || supportsSurfaceOrientation else {
+        guard !enabled || resolvedController().supportsSurfaceOrientation else {
             lastMessage = "Surface Orientation is unavailable on this macOS version."
+            releaseControllerIfIdle()
             return false
         }
         if !enabled {
             restorePendingChange(ifMatching: .surfaceOrientation, reason: "Pending orientation change restored.")
-            let restored = restoreDefaultSurfaceOrientation(fallbackTarget: target)
+            let recoveryIsNeeded = surfaceHasActiveOverride
+                || recoveryMarker(for: .surfaceOrientation) != nil
+            let restored = recoveryIsNeeded
+                ? restoreDefaultSurfaceOrientation(fallbackTarget: target)
+                : true
             surfaceHasActiveOverride = !restored
             selectedSurfaceOrientation = .degrees0
+            defaults.removeObject(forKey: DefaultsKey.appCoordinateOrientation)
             updateRecoveryMarker(
                 for: .surfaceOrientation,
                 target: target,
@@ -97,7 +139,16 @@ final class AdvancedFeaturesStore {
         }
         surfaceOrientationFeatureEnabled = enabled
         defaults.set(enabled, forKey: DefaultsKey.surfaceOrientationFeature)
-        if enabled { lastMessage = "Surface Orientation controls are available in Advanced Features." }
+        if enabled {
+            if let savedOrientation = ExperimentalSurfaceOrientation(
+                rawValue: defaults.integer(forKey: DefaultsKey.appCoordinateOrientation)
+            ), !savedOrientation.usesNativeOrientation {
+                selectedSurfaceOrientation = savedOrientation
+            }
+            lastMessage = "Surface Orientation controls are available in Advanced Features."
+        } else {
+            releaseControllerIfIdle()
+        }
         return true
     }
 
@@ -106,15 +157,21 @@ final class AdvancedFeaturesStore {
         _ enabled: Bool,
         target: HapticDeviceTarget
     ) -> Bool {
-        guard !enabled || supportsSystemHaptics else {
+        guard !enabled || resolvedController().supportsSystemHaptics else {
             lastMessage = "System Haptic Feedback control is unavailable on this macOS version."
+            releaseControllerIfIdle()
             return false
         }
         if !enabled {
             restorePendingChange(ifMatching: .systemHaptics, reason: "Pending haptic change restored.")
-            let restored = restoreDefaultSystemHaptics(fallbackTarget: target)
+            let recoveryIsNeeded = systemHapticsHasActiveOverride
+                || recoveryMarker(for: .systemHaptics) != nil
+            let restored = recoveryIsNeeded
+                ? restoreDefaultSystemHaptics(fallbackTarget: target)
+                : true
             systemHapticsHasActiveOverride = !restored
             systemHapticFeedbackEnabled = true
+            systemHapticsMixedState = false
             updateRecoveryMarker(
                 for: .systemHaptics,
                 target: target,
@@ -126,8 +183,36 @@ final class AdvancedFeaturesStore {
         }
         systemHapticsFeatureEnabled = enabled
         defaults.set(enabled, forKey: DefaultsKey.systemHapticsFeature)
-        if enabled { lastMessage = "System Haptic Feedback control is available in Advanced Features." }
+        if enabled {
+            guard refreshSystemHapticFeedbackState(target: target) else {
+                systemHapticsFeatureEnabled = false
+                defaults.set(false, forKey: DefaultsKey.systemHapticsFeature)
+                releaseControllerIfIdle()
+                return false
+            }
+            lastMessage = "System Haptic Feedback control is available in Advanced Features."
+        } else {
+            releaseControllerIfIdle()
+        }
         return true
+    }
+
+    @discardableResult
+    func refreshSystemHapticFeedbackState(target: HapticDeviceTarget) -> Bool {
+        guard systemHapticsFeatureEnabled else { return true }
+        do {
+            if let enabled = try resolvedController().readSystemHaptics(target: target) {
+                systemHapticFeedbackEnabled = enabled
+                systemHapticsMixedState = false
+            } else {
+                systemHapticFeedbackEnabled = true
+                systemHapticsMixedState = true
+            }
+            return true
+        } catch {
+            lastMessage = error.localizedDescription
+            return false
+        }
     }
 
     @discardableResult
@@ -146,7 +231,7 @@ final class AdvancedFeaturesStore {
         guard orientation != selectedSurfaceOrientation else { return true }
 
         do {
-            let snapshot = try controller.applySurfaceOrientation(
+            let snapshot = try resolvedController().applySurfaceOrientation(
                 orientation,
                 target: target
             ) { composition in
@@ -194,10 +279,10 @@ final class AdvancedFeaturesStore {
             lastMessage = "Resolve the current recovery countdown first."
             return false
         }
-        guard enabled != systemHapticFeedbackEnabled else { return true }
+        guard systemHapticsMixedState || enabled != systemHapticFeedbackEnabled else { return true }
 
         do {
-            let snapshot = try controller.applySystemHaptics(
+            let snapshot = try resolvedController().applySystemHaptics(
                 enabled: enabled,
                 target: target
             ) { composition in
@@ -209,12 +294,15 @@ final class AdvancedFeaturesStore {
                 )
             }
             let previous = systemHapticFeedbackEnabled
+            let previousMixedState = systemHapticsMixedState
             let previousHadOverride = systemHapticsHasActiveOverride
             systemHapticFeedbackEnabled = enabled
+            systemHapticsMixedState = false
             systemHapticsHasActiveOverride = true
             pendingRollback = .systemHaptics(
                 snapshot: snapshot,
                 previous: previous,
+                previousMixedState: previousMixedState,
                 previousHadOverride: previousHadOverride
             )
             beginRecoveryCountdown(
@@ -236,7 +324,22 @@ final class AdvancedFeaturesStore {
         recoveryTask = nil
         pendingRollback = nil
         self.pendingConfirmation = nil
-        lastMessage = "\(pendingConfirmation.feature.title) change kept for this app session."
+        if pendingConfirmation.feature == .surfaceOrientation {
+            if selectedSurfaceOrientation.usesNativeOrientation {
+                defaults.removeObject(forKey: DefaultsKey.appCoordinateOrientation)
+            } else {
+                defaults.set(
+                    selectedSurfaceOrientation.rawValue,
+                    forKey: DefaultsKey.appCoordinateOrientation
+                )
+            }
+        }
+        if pendingConfirmation.feature == .surfaceOrientation,
+           !selectedSurfaceOrientation.usesNativeOrientation {
+            lastMessage = "Surface Orientation was saved for Trackpad Wizard. macOS input remains unchanged."
+        } else {
+            lastMessage = "\(pendingConfirmation.feature.title) change kept until Trackpad Wizard exits."
+        }
     }
 
     func restorePendingChange() {
@@ -245,13 +348,15 @@ final class AdvancedFeaturesStore {
 
     func restoreSurfaceOrientationDefault(target: HapticDeviceTarget) {
         restorePendingChange(ifMatching: .surfaceOrientation, reason: "Pending orientation change restored.")
-        guard surfaceHasActiveOverride else {
+        guard surfaceHasActiveOverride || recoveryMarker(for: .surfaceOrientation) != nil else {
             selectedSurfaceOrientation = .degrees0
+            defaults.removeObject(forKey: DefaultsKey.appCoordinateOrientation)
             return
         }
         let restored = restoreDefaultSurfaceOrientation(fallbackTarget: target)
         surfaceHasActiveOverride = !restored
         selectedSurfaceOrientation = .degrees0
+        defaults.removeObject(forKey: DefaultsKey.appCoordinateOrientation)
         updateRecoveryMarker(
             for: .surfaceOrientation,
             target: target,
@@ -264,13 +369,14 @@ final class AdvancedFeaturesStore {
 
     func restoreSystemHapticsDefault(target: HapticDeviceTarget) {
         restorePendingChange(ifMatching: .systemHaptics, reason: "Pending haptic change restored.")
-        guard systemHapticsHasActiveOverride else {
-            systemHapticFeedbackEnabled = true
+        guard systemHapticsHasActiveOverride || recoveryMarker(for: .systemHaptics) != nil else {
+            _ = refreshSystemHapticFeedbackState(target: target)
             return
         }
         let restored = restoreDefaultSystemHaptics(fallbackTarget: target)
         systemHapticsHasActiveOverride = !restored
         systemHapticFeedbackEnabled = true
+        systemHapticsMixedState = false
         updateRecoveryMarker(
             for: .systemHaptics,
             target: target,
@@ -283,6 +389,9 @@ final class AdvancedFeaturesStore {
 
     func restoreDefaultsForTargetChange() {
         restorePendingChange(reason: "The pending experimental change was restored before changing target.")
+        let retainedAppCoordinateOrientation = selectedSurfaceOrientation.usesNativeOrientation
+            ? nil
+            : selectedSurfaceOrientation
         if surfaceHasActiveOverride {
             surfaceHasActiveOverride = !restoreDefaultSurfaceOrientation(fallbackTarget: nil)
             if !surfaceHasActiveOverride {
@@ -295,8 +404,9 @@ final class AdvancedFeaturesStore {
                 defaults.removeObject(forKey: DefaultsKey.systemHapticsRecoveryTarget)
             }
         }
-        selectedSurfaceOrientation = .degrees0
+        selectedSurfaceOrientation = retainedAppCoordinateOrientation ?? .degrees0
         systemHapticFeedbackEnabled = true
+        systemHapticsMixedState = false
     }
 
     func shutDown() {
@@ -317,7 +427,8 @@ final class AdvancedFeaturesStore {
         systemHapticsHasActiveOverride = false
         selectedSurfaceOrientation = .degrees0
         systemHapticFeedbackEnabled = true
-        controller.shutDown()
+        controller?.shutDown()
+        controller = nil
     }
 
     private func beginRecoveryCountdown(
@@ -364,15 +475,21 @@ final class AdvancedFeaturesStore {
         let restored: Bool
         switch pendingRollback {
         case .surface(let snapshot, let previous, let previousHadOverride):
-            restored = controller.restoreSurfaceOrientation(snapshot)
+            restored = resolvedController().restoreSurfaceOrientation(snapshot)
             selectedSurfaceOrientation = previous
             surfaceHasActiveOverride = previousHadOverride || !restored
             if !surfaceHasActiveOverride {
                 defaults.removeObject(forKey: DefaultsKey.surfaceRecoveryTarget)
             }
-        case .systemHaptics(let snapshot, let previous, let previousHadOverride):
-            restored = controller.restoreSystemHaptics(snapshot)
+        case .systemHaptics(
+            let snapshot,
+            let previous,
+            let previousMixedState,
+            let previousHadOverride
+        ):
+            restored = resolvedController().restoreSystemHaptics(snapshot)
             systemHapticFeedbackEnabled = previous
+            systemHapticsMixedState = previousMixedState
             systemHapticsHasActiveOverride = previousHadOverride || !restored
             if !systemHapticsHasActiveOverride {
                 defaults.removeObject(forKey: DefaultsKey.systemHapticsRecoveryTarget)
@@ -386,7 +503,7 @@ final class AdvancedFeaturesStore {
         var pendingFeatures: [String] = []
 
         if let marker = recoveryMarker(for: .surfaceOrientation) {
-            let restored = controller.restoreDefaultSurfaceOrientation(
+            let restored = resolvedController().restoreDefaultSurfaceOrientation(
                 target: marker.target,
                 requiredComposition: marker.requiredComposition
             )
@@ -400,7 +517,7 @@ final class AdvancedFeaturesStore {
         }
 
         if let marker = recoveryMarker(for: .systemHaptics) {
-            let restored = controller.restoreDefaultSystemHaptics(
+            let restored = resolvedController().restoreDefaultSystemHaptics(
                 target: marker.target,
                 requiredComposition: marker.requiredComposition
             )
@@ -424,7 +541,7 @@ final class AdvancedFeaturesStore {
         fallbackTarget: HapticDeviceTarget?
     ) -> Bool {
         let marker = recoveryMarker(for: .surfaceOrientation)
-        return controller.restoreDefaultSurfaceOrientation(
+        return resolvedController().restoreDefaultSurfaceOrientation(
             target: marker?.target ?? fallbackTarget,
             requiredComposition: marker?.requiredComposition
         )
@@ -434,7 +551,7 @@ final class AdvancedFeaturesStore {
         fallbackTarget: HapticDeviceTarget?
     ) -> Bool {
         let marker = recoveryMarker(for: .systemHaptics)
-        return controller.restoreDefaultSystemHaptics(
+        return resolvedController().restoreDefaultSystemHaptics(
             target: marker?.target ?? fallbackTarget,
             requiredComposition: marker?.requiredComposition
         )
@@ -503,5 +620,30 @@ final class AdvancedFeaturesStore {
     ) -> HapticDeviceTarget {
         guard let existing, existing != requested else { return requested }
         return .all
+    }
+
+    private func resolvedController() -> any AdvancedTrackpadControlling {
+        if let controller {
+            return controller
+        }
+        let controller = controllerFactory()
+        self.controller = controller
+        return controller
+    }
+
+    private func releaseControllerIfIdle() {
+        guard ownsController,
+              !surfaceOrientationFeatureEnabled,
+              !systemHapticsFeatureEnabled,
+              pendingRollback == nil,
+              !surfaceHasActiveOverride,
+              !systemHapticsHasActiveOverride,
+              recoveryMarker(for: .surfaceOrientation) == nil,
+              recoveryMarker(for: .systemHaptics) == nil,
+              let controller else {
+            return
+        }
+        controller.shutDown()
+        self.controller = nil
     }
 }

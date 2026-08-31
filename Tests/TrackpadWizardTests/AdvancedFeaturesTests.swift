@@ -107,8 +107,8 @@ struct AdvancedFeaturesTests {
         store.shutDown()
     }
 
-    @Test("Turning a feature flag off during its countdown restores default after snapshot rollback")
-    func pendingFlagOffRestoresDefault() throws {
+    @Test("Turning a feature flag off during its countdown restores the captured snapshot once")
+    func pendingFlagOffRestoresSnapshot() throws {
         let environment = try TestEnvironment()
         defer { environment.cleanUp() }
         let store = AdvancedFeaturesStore(
@@ -121,11 +121,70 @@ struct AdvancedFeaturesTests {
         #expect(store.setSurfaceOrientationFeatureEnabled(false, target: .all))
 
         #expect(environment.controller.restoredSurfaceSnapshots.count == 1)
-        #expect(environment.controller.defaultSurfaceRestoreCount == 1)
-        #expect(environment.controller.lastDefaultSurfaceTarget == .all)
+        #expect(environment.controller.defaultSurfaceRestoreCount == 0)
         #expect(store.pendingConfirmation == nil)
         #expect(store.selectedSurfaceOrientation == .degrees0)
         store.shutDown()
+    }
+
+    @Test("System haptics reflects an existing off state without writing when its flag is disabled")
+    func systemHapticsFlagDoesNotOverwriteExistingState() throws {
+        let environment = try TestEnvironment()
+        defer { environment.cleanUp() }
+        environment.controller.currentSystemHaptics = false
+        let store = AdvancedFeaturesStore(
+            defaults: environment.defaults,
+            controller: environment.controller
+        )
+
+        #expect(store.setSystemHapticsFeatureEnabled(true, target: .builtIn))
+        #expect(!store.systemHapticFeedbackEnabled)
+        #expect(environment.controller.systemHapticsRequests.isEmpty)
+
+        #expect(store.setSystemHapticsFeatureEnabled(false, target: .builtIn))
+        #expect(environment.controller.defaultSystemHapticsRestoreCount == 0)
+        #expect(environment.controller.systemHapticsRequests.isEmpty)
+        store.shutDown()
+    }
+
+    @Test("Disabled experimental features never instantiate their private controller")
+    func disabledFeaturesDoNotLoadController() throws {
+        let environment = try TestEnvironment()
+        defer { environment.cleanUp() }
+        var factoryCalls = 0
+        let store = AdvancedFeaturesStore(
+            defaults: environment.defaults,
+            controllerFactory: {
+                factoryCalls += 1
+                return environment.controller
+            }
+        )
+
+        #expect(factoryCalls == 0)
+        #expect(store.enabledFeatureCount == 0)
+        store.shutDown()
+        #expect(factoryCalls == 0)
+    }
+
+    @Test("Confirmed quarter-turn app coordinates survive a clean relaunch")
+    func quarterTurnPersists() throws {
+        let environment = try TestEnvironment()
+        defer { environment.cleanUp() }
+        let firstStore = AdvancedFeaturesStore(
+            defaults: environment.defaults,
+            controller: environment.controller
+        )
+        #expect(firstStore.setSurfaceOrientationFeatureEnabled(true, target: .builtIn))
+        #expect(firstStore.requestSurfaceOrientation(.degrees90, target: .builtIn))
+        firstStore.confirmPendingChange()
+        firstStore.shutDown()
+
+        let relaunchedStore = AdvancedFeaturesStore(
+            defaults: environment.defaults,
+            controller: environment.controller
+        )
+        #expect(relaunchedStore.selectedSurfaceOrientation == .degrees90)
+        relaunchedStore.shutDown()
     }
 
     @Test("An unclean-session marker restores only the recorded target at next launch")
@@ -258,6 +317,7 @@ struct AdvancedFeaturesTests {
 private final class TestAdvancedTrackpadController: AdvancedTrackpadControlling {
     var supportsSurfaceOrientation = true
     var supportsSystemHaptics = true
+    var currentSystemHaptics: Bool? = true
     var surfaceRequests: [(ExperimentalSurfaceOrientation, HapticDeviceTarget)] = []
     var systemHapticsRequests: [(Bool, HapticDeviceTarget)] = []
     var restoredSurfaceSnapshots: [SurfaceOrientationSnapshot] = []
@@ -310,6 +370,10 @@ private final class TestAdvancedTrackpadController: AdvancedTrackpadControlling 
         systemHapticsRequests.append((enabled, target))
         beforeApplying(composition(for: target))
         return SystemHapticsSnapshot(valuesByDevice: [22: true])
+    }
+
+    func readSystemHaptics(target: HapticDeviceTarget) throws -> Bool? {
+        currentSystemHaptics
     }
 
     func restoreSystemHaptics(_ snapshot: SystemHapticsSnapshot) -> Bool {

@@ -178,7 +178,12 @@ struct HapticsView: View {
 
                             Button("Test") {
                                 let step = model.customHapticPattern.steps[selectedIndex]
-                                engine.playSingle(step.feedback, amplitude: step.amplitude)
+                                if !engine.playSingle(step.feedback, amplitude: step.amplitude) {
+                                    model.reportError(
+                                        .hapticPlayback,
+                                        engine.lastMessage ?? "The test pulse could not be sent."
+                                    )
+                                }
                             }
                             .disabled(!model.customHapticPattern.steps[selectedIndex].isEnabled)
                         }
@@ -477,7 +482,12 @@ struct HapticsView: View {
                         .onChanged { _ in
                             guard !isHoldingBuzz else { return }
                             isHoldingBuzz = startCustomSignal()
-                            if !isHoldingBuzz { model.statusMessage = engine.lastMessage }
+                            if !isHoldingBuzz {
+                                model.reportError(
+                                    .hapticPlayback,
+                                    engine.lastMessage ?? "The custom signal could not start."
+                                )
+                            }
                         }
                         .onEnded { _ in
                             engine.stopBuzz()
@@ -530,7 +540,10 @@ struct HapticsView: View {
         guard isHoldingBuzz else { return }
         if !startCustomSignal() {
             isHoldingBuzz = false
-            model.statusMessage = engine.lastMessage
+            model.reportError(
+                .hapticPlayback,
+                engine.lastMessage ?? "The custom signal could not be refreshed."
+            )
         }
     }
 

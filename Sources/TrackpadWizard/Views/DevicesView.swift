@@ -136,6 +136,8 @@ private struct DeviceCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(device.name)
                             .font(.title3.weight(.semibold))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         Label(device.connection.title, systemImage: device.connection.systemImage)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -169,6 +171,7 @@ private struct DeviceCard: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, minHeight: 178, alignment: .topLeading)
         }
     }
 

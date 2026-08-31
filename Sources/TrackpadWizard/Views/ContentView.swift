@@ -58,15 +58,15 @@ struct ContentView: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
-                    if let message = model.statusMessage {
-                        StatusToast(message: message) {
-                            model.statusMessage = nil
+                    if let notice = model.statusNotice {
+                        StatusToast(notice: notice) {
+                            model.statusNotice = nil
                         }
                         .padding(18)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                .animation(.snappy, value: model.statusMessage)
+                .animation(.snappy, value: model.statusNotice?.id)
         }
         .sheet(item: pendingAdvancedConfirmation) { confirmation in
             AdvancedRecoveryDialog(
@@ -119,14 +119,22 @@ struct ContentView: View {
 }
 
 private struct StatusToast: View {
-    let message: String
+    let notice: AppNotice
     let dismiss: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "info.circle.fill")
-                .foregroundStyle(.secondary)
-            Text(message)
+            Image(systemName: notice.kind == .error ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                .foregroundStyle(notice.kind == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+            if let errorCode = notice.errorCode {
+                Text(errorCode.rawValue)
+                    .font(.caption2.monospaced().weight(.semibold))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.red.opacity(0.1), in: Capsule())
+            }
+            Text(notice.message)
                 .font(.subheadline)
                 .lineLimit(2)
             Button("Dismiss", action: dismiss)

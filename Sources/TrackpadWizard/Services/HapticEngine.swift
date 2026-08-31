@@ -17,6 +17,7 @@ final class HapticEngine {
     @ObservationIgnored private var enhancedActuator: EnhancedHapticActuator?
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var actuationObserver: (@Sendable (HapticCounterDevice) -> Void)?
+    @ObservationIgnored private var failureHandler: ((String) -> Void)?
 
     var enhancedAvailable: Bool { enhancedHapticsEnabled }
 
@@ -57,12 +58,13 @@ final class HapticEngine {
         enhancedDevices = enhancedActuator?.summaries ?? []
     }
 
-    func play(_ pattern: HapticPattern, beatsPerMinute: Double) {
+    @discardableResult
+    func play(_ pattern: HapticPattern, beatsPerMinute: Double) -> Bool {
         stopPlayback()
         stopBuzz()
         guard enhancedAvailable else {
             lastMessage = "Enable Enhanced Mode before playing a pattern."
-            return
+            return false
         }
         isPlaying = true
         isPlayingLibraryPattern = false
@@ -74,7 +76,7 @@ final class HapticEngine {
                 guard !Task.isCancelled else { break }
                 currentStep = index
                 if step.isEnabled {
-                    perform(step.feedback, amplitude: step.amplitude)
+                    _ = perform(step.feedback, amplitude: step.amplitude)
                 }
                 let nanoseconds = UInt64(stepDuration * Double(max(step.length, 1)) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
@@ -84,14 +86,16 @@ final class HapticEngine {
             isPlaying = false
             isPlayingLibraryPattern = false
         }
+        return true
     }
 
-    func play(_ document: HapticPatternDocument) {
+    @discardableResult
+    func play(_ document: HapticPatternDocument) -> Bool {
         stopPlayback()
         stopBuzz()
         guard enhancedAvailable else {
             lastMessage = "Enable Enhanced Mode before playing a pattern."
-            return
+            return false
         }
 
         let validatedDocument: HapticPatternDocument
@@ -99,7 +103,7 @@ final class HapticEngine {
             validatedDocument = try document.validated()
         } catch {
             lastMessage = error.localizedDescription
-            return
+            return false
         }
 
         let pulses = validatedDocument.events.enumerated().flatMap { eventIndex, event in
@@ -119,7 +123,7 @@ final class HapticEngine {
 
         guard !pulses.isEmpty else {
             lastMessage = "The selected pattern contains no oscillations."
-            return
+            return false
         }
 
         isPlaying = true
@@ -135,7 +139,7 @@ final class HapticEngine {
                 }
                 guard !Task.isCancelled else { break }
                 currentStep = pulse.eventIndex
-                perform(pulse.feedback, amplitude: pulse.amplitude)
+                _ = perform(pulse.feedback, amplitude: pulse.amplitude)
                 previousTime = pulse.time
             }
             guard !Task.isCancelled else { return }
@@ -143,16 +147,18 @@ final class HapticEngine {
             isPlaying = false
             isPlayingLibraryPattern = false
         }
+        return true
     }
 
-    func playSingle(_ feedback: HapticFeedbackKind, amplitude: Double = 1) {
+    @discardableResult
+    func playSingle(_ feedback: HapticFeedbackKind, amplitude: Double = 1) -> Bool {
         stopPlayback()
         stopBuzz()
         guard enhancedAvailable else {
             lastMessage = "Enable Enhanced Mode before testing a pulse."
-            return
+            return false
         }
-        perform(feedback, amplitude: amplitude)
+        return perform(feedback, amplitude: amplitude)
     }
 
     @discardableResult
@@ -192,6 +198,10 @@ final class HapticEngine {
         enhancedActuator?.setActuationObserver(observer)
     }
 
+    func setFailureHandler(_ handler: ((String) -> Void)?) {
+        failureHandler = handler
+    }
+
     func shutDown() {
         stopPlayback()
         stopBuzz()
@@ -201,14 +211,16 @@ final class HapticEngine {
         enhancedHapticsEnabled = false
     }
 
-    private func perform(_ feedback: HapticFeedbackKind, amplitude: Double) {
-        guard amplitude > 0 else { return }
+    private func perform(_ feedback: HapticFeedbackKind, amplitude: Double) -> Bool {
+        guard amplitude > 0 else { return true }
         if enhancedActuator?.tick(feedback, amplitude: amplitude) == true {
-            return
+            return true
         }
         lastMessage = target == .all
             ? "Enhanced playback failed; no haptic pulse was sent."
             : "The selected trackpad is unavailable; no haptic pulse was sent."
+        failureHandler?(lastMessage ?? "Haptic playback failed.")
+        return false
     }
 
     private struct ScheduledPulse: Sendable {

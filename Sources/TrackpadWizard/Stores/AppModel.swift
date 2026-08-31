@@ -57,6 +57,11 @@ final class AppModel {
                 advancedFeatures.restoreDefaultsForTargetChange()
             }
             hapticEngine.target = touchTarget
+            updateSurfaceDimensionsFromDevices()
+            if persistenceReady, advancedFeatures.systemHapticsFeatureEnabled {
+                _ = advancedFeatures.refreshSystemHapticFeedbackState(target: touchTarget)
+                statusMessage = advancedFeatures.lastMessage
+            }
             persistIfReady()
             restartEnhancedTouchIfNeeded()
         }
@@ -68,7 +73,20 @@ final class AppModel {
         }
     }
     var turnOffEnhancedModeWhenInactive: Bool {
-        didSet { persistIfReady() }
+        didSet {
+            if !turnOffEnhancedModeWhenInactive {
+                shouldRestoreEnhancedModeAfterActivation = false
+            }
+            persistIfReady()
+        }
+    }
+    var restoreEnhancedModeAfterRefocus: Bool {
+        didSet {
+            if !restoreEnhancedModeAfterRefocus {
+                shouldRestoreEnhancedModeAfterActivation = false
+            }
+            persistIfReady()
+        }
     }
     var touchSurfaceSizeMode: TouchSurfaceSizeMode {
         didSet { persistIfReady() }
@@ -103,7 +121,22 @@ final class AppModel {
     var showInterfaceHints: Bool {
         didSet { persistIfReady() }
     }
+    var showSettingsHints: Bool {
+        didSet { persistIfReady() }
+    }
     var showRestingTouches: Bool {
+        didSet { persistIfReady() }
+    }
+
+    var automaticallyCheckForUpdates: Bool {
+        didSet {
+            persistIfReady()
+            if automaticallyCheckForUpdates {
+                startAutomaticUpdateCheckIfNeeded()
+            }
+        }
+    }
+    var automaticallyDownloadUpdates: Bool {
         didSet { persistIfReady() }
     }
 
@@ -133,12 +166,19 @@ final class AppModel {
     var continuousAmplitude = 0.35
     var continuousFrequency = 80.0
 
-    var statusMessage: String?
+    var statusNotice: AppNotice?
+    var statusMessage: String? {
+        get { statusNotice?.message }
+        set {
+            statusNotice = newValue.map { AppNotice(message: $0) }
+        }
+    }
 
     @ObservationIgnored let hapticEngine = HapticEngine()
     @ObservationIgnored let privateTouchMonitor = PrivateTouchMonitor()
     @ObservationIgnored let statisticsStore: HapticStatisticsStore
     let advancedFeatures: AdvancedFeaturesStore
+    let updateService = UpdateService()
     @ObservationIgnored private let deviceService = TrackpadDeviceService()
     @ObservationIgnored private let systemGestureSuppressor = SystemGestureSuppressor()
     @ObservationIgnored private let defaults: UserDefaults
@@ -148,6 +188,8 @@ final class AppModel {
     @ObservationIgnored private var lastTriggerDates: [GestureTrigger: Date] = [:]
     @ObservationIgnored private var hapticRecordingStartedAt: TimeInterval?
     @ObservationIgnored private var persistenceReady = false
+    @ObservationIgnored private var shouldRestoreEnhancedModeAfterActivation = false
+    @ObservationIgnored private var updateTask: Task<Void, Never>?
 
     private enum DefaultsKey {
         static let mappings = "gestureMappings"
@@ -156,10 +198,15 @@ final class AppModel {
         static let savedHaptics = "savedHapticPatterns"
         static let selectedSavedHaptic = "selectedSavedHapticPattern"
         static let showInterfaceHints = "showInterfaceHints"
+        static let showSettingsHints = "showSettingsHints"
         static let showResting = "showRestingTouches"
         static let enhancedTarget = "enhancedDeviceTarget"
         static let suppressSystemGestures = "suppressSystemGesturesInEnhancedMode"
         static let turnOffEnhancedWhenInactive = "turnOffEnhancedModeWhenInactive"
+        static let restoreEnhancedAfterRefocus = "restoreEnhancedModeAfterRefocus"
+        static let automaticallyCheckForUpdates = "automaticallyCheckForUpdates"
+        static let automaticallyDownloadUpdates = "automaticallyDownloadUpdates"
+        static let lastUpdateCheck = "lastUpdateCheck"
         static let surfaceSizeMode = "touchSurfaceSizeMode"
         static let trailLifetime = "touchTrailLifetime"
         static let heatmapHalfLife = "heatmapHalfLife"
@@ -175,6 +222,7 @@ final class AppModel {
         statisticsStore = HapticStatisticsStore(defaults: defaults)
         mappingsEnabled = defaults.bool(forKey: DefaultsKey.mappingsEnabled)
         showInterfaceHints = defaults.object(forKey: DefaultsKey.showInterfaceHints) as? Bool ?? true
+        showSettingsHints = defaults.object(forKey: DefaultsKey.showSettingsHints) as? Bool ?? true
         showRestingTouches = defaults.object(forKey: DefaultsKey.showResting) as? Bool ?? true
         touchTarget = defaults.string(forKey: DefaultsKey.enhancedTarget)
             .flatMap(HapticDeviceTarget.init(rawValue:)) ?? .all
@@ -184,6 +232,15 @@ final class AppModel {
         turnOffEnhancedModeWhenInactive = defaults.object(
             forKey: DefaultsKey.turnOffEnhancedWhenInactive
         ) as? Bool ?? true
+        restoreEnhancedModeAfterRefocus = defaults.object(
+            forKey: DefaultsKey.restoreEnhancedAfterRefocus
+        ) as? Bool ?? false
+        automaticallyCheckForUpdates = defaults.object(
+            forKey: DefaultsKey.automaticallyCheckForUpdates
+        ) as? Bool ?? true
+        automaticallyDownloadUpdates = defaults.object(
+            forKey: DefaultsKey.automaticallyDownloadUpdates
+        ) as? Bool ?? false
         touchSurfaceSizeMode = defaults.string(forKey: DefaultsKey.surfaceSizeMode)
             .flatMap(TouchSurfaceSizeMode.init(rawValue:)) ?? .fit
         trailLifetime = defaults.object(forKey: DefaultsKey.trailLifetime) as? Double ?? 2.5
@@ -206,7 +263,13 @@ final class AppModel {
         persistenceReady = true
         hapticEngine.target = touchTarget
         hapticEngine.setActuationObserver(statisticsStore.actuationObserver)
+        hapticEngine.setFailureHandler { [weak self] message in
+            self?.reportError(.hapticPlayback, message)
+        }
         refreshDevices()
+        if self.advancedFeatures.systemHapticsFeatureEnabled {
+            _ = self.advancedFeatures.refreshSystemHapticFeedbackState(target: touchTarget)
+        }
         refreshPermissions()
         statusMessage = self.advancedFeatures.lastMessage
     }
@@ -219,6 +282,16 @@ final class AppModel {
     var externalTrackpadCount: Int { devices.filter { !$0.isBuiltIn }.count }
     var activeContactCount: Int { visibleContacts.filter(\.phase.isActive).count }
     var hasForceTouchDevice: Bool { devices.contains { $0.forceSupported == true } }
+    var systemForceClickEnabled: Bool? {
+        guard let setting = trackpadSettings.first(where: {
+            $0.key == "com.apple.trackpad.forceClick"
+        }) else { return nil }
+        return switch setting.value {
+        case "On": true
+        case "Off": false
+        default: nil
+        }
+    }
 
     var selectedHapticPattern: HapticPattern {
         if selectedHapticPatternID == customHapticPattern.id { return customHapticPattern }
@@ -244,8 +317,27 @@ final class AppModel {
         let result = deviceService.scan()
         devices = result.devices
         trackpadSettings = result.settings
+        updateSurfaceDimensionsFromDevices()
         lastDeviceRefresh = .now
         hapticEngine.refreshDevices()
+    }
+
+    func handleAppDidBecomeActive() {
+        // System Settings is a separate app, so returning here is the natural
+        // no-polling refresh point for Force Click and device availability.
+        refreshDevices()
+        if advancedFeatures.systemHapticsFeatureEnabled,
+           !advancedFeatures.refreshSystemHapticFeedbackState(target: touchTarget) {
+            reportError(
+                .systemHaptics,
+                advancedFeatures.lastMessage ?? "Could not refresh system haptic feedback."
+            )
+        }
+        guard shouldRestoreEnhancedModeAfterActivation else { return }
+        shouldRestoreEnhancedModeAfterActivation = false
+        if setEnhancedModeEnabled(true) {
+            statusMessage = "Enhanced Mode was restored after Trackpad Wizard became active."
+        }
     }
 
     func refreshPermissions() {
@@ -267,6 +359,46 @@ final class AppModel {
         ShortcutService.openAccessibilitySettings()
     }
 
+    func startAutomaticUpdateCheckIfNeeded() {
+        guard automaticallyCheckForUpdates,
+              updateTask == nil,
+              !updateService.isBusy else { return }
+        let lastCheck = defaults.object(forKey: DefaultsKey.lastUpdateCheck) as? Date
+        if let lastCheck, Date().timeIntervalSince(lastCheck) < 24 * 60 * 60 {
+            return
+        }
+        performUpdateCheck(manual: false)
+    }
+
+    func checkForUpdates() {
+        performUpdateCheck(manual: true)
+    }
+
+    func downloadAvailableUpdate() {
+        guard updateTask == nil, !updateService.isBusy else { return }
+        updateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { updateTask = nil }
+            await updateService.downloadAvailableUpdate()
+            switch updateService.state {
+            case .downloaded(let release, _):
+                statusMessage = "\(release.version?.description ?? release.tagName) is downloaded and ready to open."
+            case .failed(let message):
+                reportError(.updateDownload, message)
+            default:
+                break
+            }
+        }
+    }
+
+    func openAvailableUpdate() {
+        if updateService.downloadedInstallerURL != nil {
+            updateService.openDownloadedInstaller()
+        } else {
+            updateService.openReleasePage()
+        }
+    }
+
     @discardableResult
     func setEnhancedModeEnabled(_ enabled: Bool) -> Bool {
         if !enabled {
@@ -280,14 +412,21 @@ final class AppModel {
             self?.handleTouchFrame(frame)
         }
         guard touchEnabled else {
-            statusMessage = privateTouchMonitor.lastError ?? "Enhanced touch data is unavailable."
+            privateTouchMonitor.shutDown()
+            reportError(
+                .enhancedTouch,
+                privateTouchMonitor.lastError ?? "Enhanced touch data is unavailable."
+            )
             return false
         }
         updateSurfaceDimensionsFromEnhancedMonitor()
 
         guard hapticEngine.enableEnhancedHaptics() else {
-            privateTouchMonitor.stop()
-            statusMessage = hapticEngine.lastMessage ?? "The Enhanced Mode actuator is unavailable."
+            privateTouchMonitor.shutDown()
+            reportError(
+                .enhancedHaptics,
+                hapticEngine.lastMessage ?? "The Enhanced Mode actuator is unavailable."
+            )
             return false
         }
 
@@ -308,11 +447,17 @@ final class AppModel {
         disableEnhancedMode(message: "Touch Lab is using the public AppKit event surface.")
     }
 
-    func disableEnhancedMode(message: String? = nil) {
+    func disableEnhancedMode(
+        message: String? = nil,
+        preserveRefocusRequest: Bool = false
+    ) {
+        if !preserveRefocusRequest {
+            shouldRestoreEnhancedModeAfterActivation = false
+        }
         systemGestureSuppressor.stop()
         systemGestureSuppressor.updateEnhancedTouchCount(0)
         systemGesturesSuppressed = false
-        privateTouchMonitor.stop()
+        privateTouchMonitor.shutDown()
         hapticEngine.disableEnhancedHaptics()
         enhancedModeEnabled = false
         currentContacts = []
@@ -333,15 +478,24 @@ final class AppModel {
             hapticEngine.refreshDevices()
             statusMessage = "Enhanced Mode now targets \(touchTarget.title)."
         } else {
-            disableEnhancedMode(
-                message: privateTouchMonitor.lastError ?? "The selected trackpad is unavailable."
+            let message = privateTouchMonitor.lastError ?? "The selected trackpad is unavailable."
+            disableEnhancedMode()
+            reportError(
+                .enhancedTouch,
+                message
             )
         }
     }
 
     func handleAppDidResignActive() {
         guard turnOffEnhancedModeWhenInactive, enhancedModeEnabled else { return }
-        disableEnhancedMode(message: "Enhanced Mode turned off while the app was inactive.")
+        shouldRestoreEnhancedModeAfterActivation = restoreEnhancedModeAfterRefocus
+        disableEnhancedMode(
+            message: restoreEnhancedModeAfterRefocus
+                ? "Enhanced Mode paused while Trackpad Wizard is inactive."
+                : "Enhanced Mode turned off while Trackpad Wizard is inactive.",
+            preserveRefocusRequest: true
+        )
     }
 
     func setStatisticsCollectionEnabled(_ enabled: Bool) {
@@ -358,23 +512,23 @@ final class AppModel {
     }
 
     func setSurfaceOrientationFeatureEnabled(_ enabled: Bool) {
-        _ = advancedFeatures.setSurfaceOrientationFeatureEnabled(enabled, target: touchTarget)
-        statusMessage = advancedFeatures.lastMessage
+        let succeeded = advancedFeatures.setSurfaceOrientationFeatureEnabled(enabled, target: touchTarget)
+        publishAdvancedResult(succeeded, errorCode: .surfaceOrientation)
     }
 
     func setSystemHapticsFeatureEnabled(_ enabled: Bool) {
-        _ = advancedFeatures.setSystemHapticsFeatureEnabled(enabled, target: touchTarget)
-        statusMessage = advancedFeatures.lastMessage
+        let succeeded = advancedFeatures.setSystemHapticsFeatureEnabled(enabled, target: touchTarget)
+        publishAdvancedResult(succeeded, errorCode: .systemHaptics)
     }
 
     func requestSurfaceOrientation(_ orientation: ExperimentalSurfaceOrientation) {
-        _ = advancedFeatures.requestSurfaceOrientation(orientation, target: touchTarget)
-        statusMessage = advancedFeatures.lastMessage
+        let succeeded = advancedFeatures.requestSurfaceOrientation(orientation, target: touchTarget)
+        publishAdvancedResult(succeeded, errorCode: .surfaceOrientation)
     }
 
     func requestSystemHapticFeedback(enabled: Bool) {
-        _ = advancedFeatures.requestSystemHapticFeedback(enabled: enabled, target: touchTarget)
-        statusMessage = advancedFeatures.lastMessage
+        let succeeded = advancedFeatures.requestSystemHapticFeedback(enabled: enabled, target: touchTarget)
+        publishAdvancedResult(succeeded, errorCode: .systemHaptics)
     }
 
     func restoreSurfaceOrientationDefault() {
@@ -542,12 +696,17 @@ final class AppModel {
                 statusMessage = "Exported \(recordedFrames.count) frames to \(url.lastPathComponent)."
             }
         } catch {
-            statusMessage = "Export failed: \(error.localizedDescription)"
+            reportError(.sessionExport, "Export failed: \(error.localizedDescription)")
         }
     }
 
     func playSelectedHaptic() {
-        hapticEngine.play(selectedHapticPattern, beatsPerMinute: hapticTempo)
+        if !hapticEngine.play(selectedHapticPattern, beatsPerMinute: hapticTempo) {
+            reportError(
+                .hapticPlayback,
+                hapticEngine.lastMessage ?? "The haptic pattern could not start."
+            )
+        }
     }
 
     func saveSelectedComposerPattern() {
@@ -562,7 +721,7 @@ final class AppModel {
             selectedSavedHapticPatternID = validated.id
             statusMessage = "Saved \(validated.name) to the pattern library."
         } catch {
-            statusMessage = "Save failed: \(error.localizedDescription)"
+            reportError(.patternValidation, "Save failed: \(error.localizedDescription)")
         }
     }
 
@@ -615,7 +774,7 @@ final class AppModel {
             selectedSavedHapticPatternID = validated.id
             statusMessage = "Saved \(validated.pulseCount) recorded oscillations."
         } catch {
-            statusMessage = error.localizedDescription
+            reportError(.patternValidation, error.localizedDescription)
         }
     }
 
@@ -624,7 +783,12 @@ final class AppModel {
             statusMessage = "Choose or record a saved pattern first."
             return
         }
-        hapticEngine.play(pattern)
+        if !hapticEngine.play(pattern) {
+            reportError(
+                .hapticPlayback,
+                hapticEngine.lastMessage ?? "The haptic pattern could not start."
+            )
+        }
     }
 
     func importHapticPattern() {
@@ -641,7 +805,7 @@ final class AppModel {
             selectedSavedHapticPatternID = copy.id
             statusMessage = "Imported \(copy.name)."
         } catch {
-            statusMessage = "Import failed: \(error.localizedDescription)"
+            reportError(.patternImport, "Import failed: \(error.localizedDescription)")
         }
     }
 
@@ -655,7 +819,7 @@ final class AppModel {
                 statusMessage = "Exported \(url.lastPathComponent)."
             }
         } catch {
-            statusMessage = "Export failed: \(error.localizedDescription)"
+            reportError(.patternExport, "Export failed: \(error.localizedDescription)")
         }
     }
 
@@ -683,11 +847,61 @@ final class AppModel {
     }
 
     func shutDown() {
+        updateTask?.cancel()
+        updateTask = nil
         disableEnhancedMode()
         hapticEngine.setActuationObserver(nil)
+        hapticEngine.setFailureHandler(nil)
         hapticEngine.shutDown()
         statisticsStore.shutDown()
         advancedFeatures.shutDown()
+    }
+
+    private func performUpdateCheck(manual: Bool) {
+        guard updateTask == nil, !updateService.isBusy else { return }
+        updateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { updateTask = nil }
+            await updateService.checkForUpdates()
+            defaults.set(Date(), forKey: DefaultsKey.lastUpdateCheck)
+
+            switch updateService.state {
+            case .upToDate(let version):
+                if manual {
+                    statusMessage = "Trackpad Wizard \(version.description) is up to date."
+                }
+            case .updateAvailable(let release):
+                if automaticallyDownloadUpdates {
+                    await updateService.downloadAvailableUpdate()
+                    if case .downloaded(let downloadedRelease, _) = updateService.state {
+                        statusMessage = "\(downloadedRelease.version?.description ?? downloadedRelease.tagName) downloaded automatically and is ready to open."
+                    } else if manual, case .failed(let message) = updateService.state {
+                        reportError(.updateDownload, message)
+                    }
+                } else {
+                    statusMessage = "A new Trackpad Wizard release is available: \(release.version?.description ?? release.tagName)."
+                }
+            case .failed(let message):
+                if manual {
+                    reportError(.updateCheck, message)
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    private func publishAdvancedResult(_ succeeded: Bool, errorCode: AppErrorCode) {
+        let message = advancedFeatures.lastMessage ?? "The experimental operation did not complete."
+        if succeeded {
+            statusMessage = message
+        } else {
+            reportError(errorCode, message)
+        }
+    }
+
+    func reportError(_ code: AppErrorCode, _ message: String) {
+        statusNotice = AppNotice(message: message, kind: .error, errorCode: code)
     }
 
     private func recognize(_ trigger: GestureTrigger, source: TouchDataSource) {
@@ -717,15 +931,24 @@ final class AppModel {
                 statusMessage = "\(trigger.title) sent \(mapping.shortcut.displayName)."
             } else {
                 refreshPermissions()
-                statusMessage = "Accessibility permission is needed to send \(mapping.shortcut.displayName)."
+                reportError(
+                    .accessibility,
+                    "Accessibility permission is needed to send \(mapping.shortcut.displayName)."
+                )
             }
         case .hapticPattern:
             let pattern = mapping.hapticPatternID == customHapticPattern.id
                 ? customHapticPattern
                 : HapticPattern.presets.first { $0.id == mapping.hapticPatternID }
             if let pattern {
-                hapticEngine.play(pattern, beatsPerMinute: hapticTempo)
-                statusMessage = "\(trigger.title) played \(pattern.name)."
+                if hapticEngine.play(pattern, beatsPerMinute: hapticTempo) {
+                    statusMessage = "\(trigger.title) played \(pattern.name)."
+                } else {
+                    reportError(
+                        .hapticPlayback,
+                        hapticEngine.lastMessage ?? "The mapped haptic pattern could not start."
+                    )
+                }
             }
         }
     }
@@ -742,7 +965,10 @@ final class AppModel {
             statusMessage = "Enhanced Mode is active and system gestures are temporarily suppressed."
         } else {
             refreshPermissionsWithoutReconfiguration()
-            statusMessage = systemGestureSuppressor.lastError
+            reportError(
+                .gestureSuppression,
+                systemGestureSuppressor.lastError ?? "System gesture suppression could not start."
+            )
         }
     }
 
@@ -754,6 +980,15 @@ final class AppModel {
             rawSurfaceWidthMM = width
             rawSurfaceHeightMM = height
         }
+    }
+
+    private func updateSurfaceDimensionsFromDevices() {
+        guard let size = TrackpadSurfaceSizeResolver.preferredSize(
+            for: touchTarget,
+            devices: devices
+        ) else { return }
+        rawSurfaceWidthMM = size.width
+        rawSurfaceHeightMM = size.height
     }
 
     private func transformedFrame(_ frame: TouchFrame) -> TouchFrame {
@@ -837,6 +1072,7 @@ final class AppModel {
         guard persistenceReady else { return }
         defaults.set(mappingsEnabled, forKey: DefaultsKey.mappingsEnabled)
         defaults.set(showInterfaceHints, forKey: DefaultsKey.showInterfaceHints)
+        defaults.set(showSettingsHints, forKey: DefaultsKey.showSettingsHints)
         defaults.set(showRestingTouches, forKey: DefaultsKey.showResting)
         defaults.set(touchTarget.rawValue, forKey: DefaultsKey.enhancedTarget)
         defaults.set(
@@ -846,6 +1082,18 @@ final class AppModel {
         defaults.set(
             turnOffEnhancedModeWhenInactive,
             forKey: DefaultsKey.turnOffEnhancedWhenInactive
+        )
+        defaults.set(
+            restoreEnhancedModeAfterRefocus,
+            forKey: DefaultsKey.restoreEnhancedAfterRefocus
+        )
+        defaults.set(
+            automaticallyCheckForUpdates,
+            forKey: DefaultsKey.automaticallyCheckForUpdates
+        )
+        defaults.set(
+            automaticallyDownloadUpdates,
+            forKey: DefaultsKey.automaticallyDownloadUpdates
         )
         defaults.set(touchSurfaceSizeMode.rawValue, forKey: DefaultsKey.surfaceSizeMode)
         defaults.set(trailLifetime, forKey: DefaultsKey.trailLifetime)

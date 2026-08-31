@@ -17,6 +17,10 @@ struct TrackpadWizardApp: App {
                     appDelegate.onResignActive = {
                         model.handleAppDidResignActive()
                     }
+                    appDelegate.onBecomeActive = {
+                        model.handleAppDidBecomeActive()
+                    }
+                    model.startAutomaticUpdateCheckIfNeeded()
                 }
         }
         .defaultSize(width: 1240, height: 820)
@@ -48,6 +52,7 @@ struct TrackpadWizardApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (() -> Void)?
     var onResignActive: (() -> Void)?
+    var onBecomeActive: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -60,6 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidResignActive(_ notification: Notification) {
         onResignActive?()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        onBecomeActive?()
     }
 }
 

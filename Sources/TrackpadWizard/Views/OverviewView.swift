@@ -27,7 +27,7 @@ struct OverviewView: View {
                         MetricTile(
                             title: "Trackpads",
                             value: "\(model.connectedTrackpadCount)",
-                            systemImage: TrackpadSymbols.device(enhanced: model.enhancedModeEnabled),
+                            systemImage: TrackpadSymbols.connectedDevice,
                             detail: model.externalTrackpadCount > 0
                                 ? "\(model.externalTrackpadCount) external"
                                 : "Built-in only"

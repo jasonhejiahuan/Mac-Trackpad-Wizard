@@ -156,10 +156,9 @@ final class PrivateTouchMonitor {
     @ObservationIgnored private var lastSequence: UInt64 = 0
     @ObservationIgnored private var retainedDeviceAddresses: Set<UInt> = []
     @ObservationIgnored private var onFrame: ((TouchFrame) -> Void)?
+    @ObservationIgnored private var didAttemptRuntimeLoad = false
 
-    init() {
-        loadRuntime()
-    }
+    var isRuntimeLoaded: Bool { libraryHandle != nil }
 
     @discardableResult
     func start(
@@ -167,6 +166,8 @@ final class PrivateTouchMonitor {
         onFrame: @escaping (TouchFrame) -> Void
     ) -> Bool {
         stop()
+        lastError = nil
+        ensureRuntimeLoaded()
         guard isAvailable else {
             lastError = "Enhanced touch symbols are unavailable on this macOS version."
             return false
@@ -218,11 +219,43 @@ final class PrivateTouchMonitor {
     }
 
     func availableDeviceTargets() -> [HapticDeviceTarget] {
+        ensureRuntimeLoaded()
         scanDevices()
         var targets: [HapticDeviceTarget] = [.all]
         if devices.contains(where: \.isBuiltIn) { targets.append(.builtIn) }
         if devices.contains(where: { !$0.isBuiltIn }) { targets.append(.external) }
         return targets
+    }
+
+    func shutDown() {
+        stop()
+        devices = []
+        for address in retainedDeviceAddresses {
+            guard let pointer = UnsafeMutableRawPointer(bitPattern: address) else { continue }
+            Unmanaged<AnyObject>.fromOpaque(pointer).release()
+        }
+        retainedDeviceAddresses.removeAll()
+        if let libraryHandle {
+            dlclose(libraryHandle)
+        }
+        libraryHandle = nil
+        listDevices = nil
+        deviceIsBuiltIn = nil
+        getDeviceID = nil
+        getDimensions = nil
+        registerCallback = nil
+        unregisterCallback = nil
+        startDevice = nil
+        stopDevice = nil
+        deviceIsRunning = nil
+        isAvailable = false
+        didAttemptRuntimeLoad = false
+    }
+
+    private func ensureRuntimeLoaded() {
+        guard !didAttemptRuntimeLoad else { return }
+        didAttemptRuntimeLoad = true
+        loadRuntime()
     }
 
     private func loadRuntime() {
