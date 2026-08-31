@@ -13,6 +13,9 @@ struct SettingsView: View {
             permissionSettings
                 .tabItem { Label("Permissions", systemImage: "hand.raised") }
 
+            updateSettings
+                .tabItem { Label("Updates", systemImage: "arrow.down.circle") }
+
             experimentalSettings
                 .tabItem { Label("Experimental", systemImage: "flask") }
 
@@ -35,6 +38,7 @@ struct SettingsView: View {
         Form {
             Section("Interface") {
                 Toggle("Show interface hints", isOn: $model.showInterfaceHints)
+                Toggle("Show explanatory text in Settings", isOn: $model.showSettingsHints)
                 LabeledContent("Touch preview size") {
                     Picker("", selection: $model.touchSurfaceSizeMode) {
                         ForEach(TouchSurfaceSizeMode.allCases) { mode in
@@ -44,9 +48,7 @@ struct SettingsView: View {
                     .labelsHidden()
                     .frame(width: 170)
                 }
-                Text("Physical Size uses the current display’s reported millimeters and scaled point resolution. Some monitors publish inaccurate physical dimensions.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Physical Size uses the current display’s reported millimeters and scaled point resolution. Some monitors publish inaccurate physical dimensions.")
             }
 
             Section("Touch Lab") {
@@ -88,13 +90,14 @@ struct SettingsView: View {
                     "Turn off Enhanced Mode when Trackpad Wizard becomes inactive",
                     isOn: $model.turnOffEnhancedModeWhenInactive
                 )
-                Text("Enabled by default. Enhanced Mode always turns off when the app quits, regardless of this setting.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle(
+                    "Restore Enhanced Mode when Trackpad Wizard becomes active again",
+                    isOn: $model.restoreEnhancedModeAfterRefocus
+                )
+                .disabled(!model.turnOffEnhancedModeWhenInactive)
+                settingsHint("Enhanced Mode always turns off when the app quits. Optional refocus restoration applies only when this app paused an active session after losing focus.")
                 Toggle("Enable gesture mappings", isOn: $model.mappingsEnabled)
-                Text("Mappings remain independent from Enhanced Mode.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Mappings remain independent from Enhanced Mode.")
             }
 
             Section {
@@ -115,9 +118,7 @@ struct SettingsView: View {
                         systemImage: model.accessibilityGranted ? "checkmark.circle.fill" : "circle"
                     )
                 }
-                Text("Accessibility is requested only when you choose Request Access. It is used for mapped keyboard shortcuts and the optional process-scoped system-gesture filter; touch inspection and haptics do not require it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Accessibility is requested only when you choose Request Access. It is used for mapped keyboard shortcuts and the optional process-scoped system-gesture filter; touch inspection and haptics do not require it.")
                 HStack {
                     Button("Refresh") { model.refreshPermissions() }
                     Button("Open System Settings") { model.openAccessibilitySettings() }
@@ -126,6 +127,53 @@ struct SettingsView: View {
                             .buttonStyle(.glassProminent)
                     }
                 }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var updateSettings: some View {
+        Form {
+            Section("Release Updates") {
+                Toggle(
+                    "Check for updates automatically",
+                    isOn: $model.automaticallyCheckForUpdates
+                )
+                Toggle(
+                    "Download verified updates automatically",
+                    isOn: $model.automaticallyDownloadUpdates
+                )
+                .disabled(!model.automaticallyCheckForUpdates)
+
+                LabeledContent("Installed") {
+                    Text(AppReleaseVersion.current.description)
+                        .monospacedDigit()
+                }
+                LabeledContent("Status") {
+                    Text(model.updateService.statusText)
+                        .foregroundStyle(updateStatusColor)
+                        .multilineTextAlignment(.trailing)
+                }
+
+                HStack {
+                    Button("Check Now") { model.checkForUpdates() }
+                        .disabled(model.updateService.isBusy)
+
+                    if model.updateService.downloadedInstallerURL != nil {
+                        Button("Open Installer…") { model.openAvailableUpdate() }
+                            .buttonStyle(.glassProminent)
+                    } else if model.updateService.availableRelease != nil {
+                        Button("Download and Verify") { model.downloadAvailableUpdate() }
+                            .buttonStyle(.glassProminent)
+                            .disabled(model.updateService.isBusy)
+                    }
+
+                    if model.updateService.availableRelease != nil {
+                        Button("View Release") { model.updateService.openReleasePage() }
+                    }
+                }
+
+                settingsHint("Automatic checks run at most once per day. Downloads are accepted only when the notarized DMG matches the SHA-256 checksum published with the GitHub Release. macOS still asks you to confirm installation.")
             }
         }
         .formStyle(.grouped)
@@ -141,9 +189,7 @@ struct SettingsView: View {
                     "Temporarily suppress system trackpad gestures",
                     isOn: $model.suppressSystemGesturesInEnhancedMode
                 )
-                Text("Uses an Accessibility event tap only while Enhanced Mode is active. The tap disappears automatically after a crash or force-quit; system trackpad preferences are never edited. Continuous trackpad scrolling is paused, and a left-button drag is filtered while the enhanced stream reports three or more active contacts. A simultaneous physical mouse drag can therefore also be paused.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Uses an Accessibility event tap only while Enhanced Mode is active. The tap disappears automatically after a crash or force-quit; system trackpad preferences are never edited. Continuous trackpad scrolling is paused, and a left-button drag is filtered while the enhanced stream reports three or more active contacts. A simultaneous physical mouse drag can therefore also be paused.")
                 Button("Disable Enhanced Mode") {
                     _ = model.setEnhancedModeEnabled(false)
                 }
@@ -159,9 +205,7 @@ struct SettingsView: View {
                     )
                 )
                 .disabled(!model.advancedFeatures.supportsSurfaceOrientation)
-                Text("Shows the experimental 0°/90°/180°/270° control in Advanced Features. Turning this flag off hides the control and restores 0°.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Shows the experimental 0°/90°/180°/270° control in Advanced Features. Turning this flag off hides the control and restores 0°. Quarter turns rotate only Trackpad Wizard coordinates because the macOS runtime accepts native 0° and 180° reports.")
 
                 Toggle(
                     "System Haptic Feedback",
@@ -171,18 +215,14 @@ struct SettingsView: View {
                     )
                 )
                 .disabled(!model.advancedFeatures.supportsSystemHaptics)
-                Text("Shows the private system-actuation switch in Advanced Features. Turning this flag off hides the control and restores system feedback to On.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Shows the private system-actuation switch in Advanced Features. Turning this flag off restores feedback only if Trackpad Wizard changed it; otherwise your current System Settings value is left untouched.")
 
                 LabeledContent("Enabled flags") {
                     Text(model.advancedFeatures.enabledFeatureCount.formatted())
                         .monospacedDigit()
                 }
 
-                Text("Feature flags only expose controls. Custom private settings are not applied at launch and every change uses a 10-second recovery confirmation. If a prior session ended before cleanup, the app may restore the marked target to macOS defaults on the next launch.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("Feature flags only expose controls. When both flags are off, the private controller is not loaded. Every change uses a 10-second recovery confirmation. If a prior session ended before cleanup, the app may restore the marked target to macOS defaults on the next launch.")
             }
         }
         .formStyle(.grouped)
@@ -198,9 +238,7 @@ struct SettingsView: View {
                         set: { model.setStatisticsCollectionEnabled($0) }
                     )
                 )
-                Text("One successful actuator oscillation equals one count. Counts are separated by a locally pseudonymized device identifier and persist like a shutter count.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("One successful actuator oscillation equals one count. Counts are separated by a locally pseudonymized device identifier and persist like a shutter count.")
                 LabeledContent("Graph range") {
                     Picker(
                         "",
@@ -223,9 +261,7 @@ struct SettingsView: View {
             }
 
             Section("Performance and Privacy") {
-                Text("When collection is off, the actuator callback and one-second flush timer are removed. The app never creates a sleep or power assertion. Counts cover only vibrations generated by Trackpad Wizard; normal clicks are not globally monitored because macOS cannot reliably attribute them to a trackpad instead of a mouse through public events.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsHint("When collection is off, the actuator callback and one-second flush timer are removed. The app never creates a sleep or power assertion. Counts cover only vibrations generated by Trackpad Wizard; normal clicks are not globally monitored because macOS cannot reliably attribute them to a trackpad instead of a mouse through public events.")
                 Button("Reset All Statistics…", role: .destructive) {
                     showStatisticsResetConfirmation = true
                 }
@@ -250,5 +286,21 @@ struct SettingsView: View {
                     .frame(width: 62, alignment: .trailing)
             }
         }
+    }
+
+    @ViewBuilder
+    private func settingsHint(_ message: String) -> some View {
+        if model.showSettingsHints {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var updateStatusColor: Color {
+        if case .failed = model.updateService.state {
+            return .red
+        }
+        return .secondary
     }
 }

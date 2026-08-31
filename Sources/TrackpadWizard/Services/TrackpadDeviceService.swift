@@ -44,7 +44,9 @@ struct TrackpadDeviceService {
                 vendorID: integer(properties["VendorID"]),
                 productID: productID,
                 isBuiltIn: builtIn,
-                forceSupported: boolean(properties["ForceSupported"])
+                forceSupported: boolean(properties["ForceSupported"]),
+                surfaceWidthMM: surfaceDimension(properties["Sensor Surface Width"]),
+                surfaceHeightMM: surfaceDimension(properties["Sensor Surface Height"])
             )
         }
         .sorted { lhs, rhs in
@@ -164,6 +166,13 @@ struct TrackpadDeviceService {
         if let value = value as? Bool { return value }
         if let value = value as? NSNumber { return value.boolValue }
         return nil
+    }
+
+    private func surfaceDimension(_ value: Any?) -> Double? {
+        guard let hundredthsOfAMillimeter = integer(value), hundredthsOfAMillimeter > 0 else {
+            return nil
+        }
+        return Double(hundredthsOfAMillimeter) / 100
     }
 
     private func boolString(_ value: Any) -> String? {

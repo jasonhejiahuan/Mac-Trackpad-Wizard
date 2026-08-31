@@ -43,11 +43,11 @@ struct GestureStudioView: View {
                         )
                         MetricTile(
                             title: "Force Stage",
-                            value: "\(model.pressureStage)",
+                            value: model.systemForceClickEnabled == false
+                                ? "—"
+                                : "\(model.pressureStage)",
                             systemImage: "circle.dotted.circle",
-                            detail: model.pressureProxy > 0
-                                ? "\(model.pressureProxy.formatted(.number.precision(.fractionLength(2)))) pressure"
-                                : "No event"
+                            detail: forceStageDetail
                         )
                     }
                 }
@@ -159,6 +159,17 @@ struct GestureStudioView: View {
                 .sign(strategy: .always(includingZero: false))
                 .precision(.fractionLength(digits))
         )
+    }
+
+    private var forceStageDetail: String {
+        if model.systemForceClickEnabled == false {
+            return model.pressureProxy > 0
+                ? "Force Click off · \(model.pressureProxy.formatted(.number.precision(.fractionLength(2)))) pressure"
+                : "Disabled in System Settings"
+        }
+        return model.pressureProxy > 0
+            ? "\(model.pressureProxy.formatted(.number.precision(.fractionLength(2)))) pressure"
+            : "No event"
     }
 
     private func detail(for sample: NativeGestureSample) -> String {

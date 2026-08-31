@@ -36,10 +36,43 @@ struct TrackpadDevice: Identifiable, Codable, Hashable, Sendable {
     let productID: Int?
     let isBuiltIn: Bool
     let forceSupported: Bool?
+    let surfaceWidthMM: Double?
+    let surfaceHeightMM: Double?
 
     var reportRate: Double? {
         guard let reportIntervalMicroseconds, reportIntervalMicroseconds > 0 else { return nil }
         return 1_000_000 / Double(reportIntervalMicroseconds)
+    }
+
+    var surfaceSizeMM: CGSize? {
+        guard let surfaceWidthMM,
+              let surfaceHeightMM,
+              surfaceWidthMM > 20,
+              surfaceHeightMM > 20 else { return nil }
+        return CGSize(width: surfaceWidthMM, height: surfaceHeightMM)
+    }
+}
+
+enum TrackpadSurfaceSizeResolver {
+    static func preferredSize(
+        for target: HapticDeviceTarget,
+        devices: [TrackpadDevice]
+    ) -> CGSize? {
+        let candidates: [TrackpadDevice]
+        switch target {
+        case .builtIn:
+            candidates = devices.filter(\.isBuiltIn)
+        case .external:
+            candidates = devices.filter { !$0.isBuiltIn }
+        case .all:
+            // Public AppKit events do not identify which trackpad produced a
+            // touch. Match macOS's built-in-first behavior when both classes
+            // are selected, then fall back to any connected surface.
+            candidates = devices.sorted { lhs, rhs in
+                lhs.isBuiltIn && !rhs.isBuiltIn
+            }
+        }
+        return candidates.lazy.compactMap(\.surfaceSizeMM).first
     }
 }
 

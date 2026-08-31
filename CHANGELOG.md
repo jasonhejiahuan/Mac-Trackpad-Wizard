@@ -4,6 +4,19 @@ All notable changes to Trackpad Wizard are documented here.
 
 Each release heading is the source of truth for both Apple bundle values: the marketing version and its monotonically increasing build number.
 
+## Version 0.3.0 (Build 4) - 2026-08-31
+
+- Preserved the user’s existing macOS system-haptic setting when its experimental flag is disabled without an active Trackpad Wizard override, and skipped unavailable devices such as an internal trackpad behind a closed lid when an All Trackpads operation can continue safely.
+- Read the selected trackpad’s I/O Registry sensor dimensions in System mode, including built-in-first sizing for All Trackpads, so the visual surface no longer depends on Enhanced Mode for correct hardware dimensions.
+- Persisted confirmed 90° and 270° Trackpad Wizard coordinate rotations and clarified their app-only boundary; native 0° and 180° reports retain exact-state rollback.
+- Made Force Stage show a placeholder while Force Click and haptic feedback is disabled in System Settings, with automatic device and preference refresh when the app becomes active again.
+- Added stable `TW-xxxx` error codes to bottom error notifications across enhanced touch, haptics, gesture suppression, advanced controls, exports, permissions, and updates.
+- Added daily GitHub Release checks, optional automatic download, SHA-256 verification, release-page access, and a macOS-confirmed installer handoff in the new Updates settings tab.
+- Added optional Enhanced Mode restoration after refocus and a separate preference for explanatory text inside Settings.
+- Kept device cards equal-height with two-line Bluetooth names and made the Overview trackpad count icon independent from Enhanced Mode.
+- Made Enhanced Mode and advanced private controllers load only on demand and unload after their switches are turned off, while retaining crash-recovery access only when a managed override requires it.
+- Expanded focused coverage for exact haptic-state preservation, lazy private-runtime loading, surface-size routing, quarter-turn persistence, and release metadata parsing.
+
 ## Version 0.2.1 (Build 3) - 2026-08-30
 
 - Added explicit light foreground fills for every Icon Composer layer in Dark appearance.

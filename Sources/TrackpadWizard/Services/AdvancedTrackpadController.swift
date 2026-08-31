@@ -1,10 +1,13 @@
 import Darwin
 import Foundation
+import IOKit
 
 @MainActor
 protocol AdvancedTrackpadControlling: AnyObject {
     var supportsSurfaceOrientation: Bool { get }
     var supportsSystemHaptics: Bool { get }
+
+    func readSystemHaptics(target: HapticDeviceTarget) throws -> Bool?
 
     func applySurfaceOrientation(
         _ orientation: ExperimentalSurfaceOrientation,
@@ -140,11 +143,19 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         guard supportsSurfaceOrientation, let setter = setSurfaceOrientation else {
             throw AdvancedTrackpadControllerError.unavailable("Surface orientation")
         }
-        let selected = try matchingDevices(target: target)
+        let candidates = try matchingDevices(target: target)
+        var selected: [Device] = []
         var snapshot: [UInt64: UInt32] = [:]
-        for device in selected {
-            snapshot[device.identifier] = try currentOrientation(for: device)
+        for device in candidates {
+            do {
+                snapshot[device.identifier] = try currentOrientation(for: device)
+                selected.append(device)
+            } catch let error as AdvancedTrackpadControllerError
+                where target == .all && error.indicatesUnavailableDevice {
+                continue
+            }
         }
+        guard !selected.isEmpty else { throw AdvancedTrackpadControllerError.noMatchingDevice }
 
         // Persist recovery composition after all restore values are captured,
         // but before the first private API mutation can occur.
@@ -183,10 +194,14 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         ) ?? true
         let devices = Dictionary(uniqueKeysWithValues: scannedDevices.map { ($0.identifier, $0) })
         var identifiers = managedSurfaceDeviceIDs
-        if let target {
-            let targetIdentifiers = Self.identifiers(for: target, in: scannedDevices)
-            guard !targetIdentifiers.isEmpty else { return false }
-            identifiers.formUnion(targetIdentifiers)
+        if identifiers.isEmpty, let target {
+            let recoveryDevices = Self.recoveryDevices(
+                for: target,
+                in: scannedDevices,
+                requiredComposition: requiredComposition
+            )
+            guard !recoveryDevices.isEmpty else { return false }
+            identifiers = Set(recoveryDevices.map(\.identifier))
         }
         var remaining: Set<UInt64> = []
         for identifier in identifiers {
@@ -207,16 +222,19 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         guard supportsSystemHaptics else {
             throw AdvancedTrackpadControllerError.unavailable("System haptic feedback")
         }
-        let selected = try matchingDevices(target: target)
+        let candidates = try matchingDevices(target: target)
+        var selected: [Device] = []
         var snapshot: [UInt64: Bool] = [:]
-        for device in selected {
-            snapshot[device.identifier] = try withActuator(for: device) { actuator in
-                guard let getter = getSystemActuations else {
-                    throw AdvancedTrackpadControllerError.unavailable("System haptic feedback")
-                }
-                return getter(actuator)
+        for device in candidates {
+            do {
+                snapshot[device.identifier] = try systemHapticsEnabled(for: device)
+                selected.append(device)
+            } catch let error as AdvancedTrackpadControllerError
+                where target == .all && error.indicatesUnavailableDevice {
+                continue
             }
         }
+        guard !selected.isEmpty else { throw AdvancedTrackpadControllerError.noMatchingDevice }
 
         // See the orientation path above: the marker must reach persistent
         // storage before any actuator state is changed.
@@ -238,6 +256,32 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         return SystemHapticsSnapshot(valuesByDevice: snapshot)
     }
 
+    func readSystemHaptics(target: HapticDeviceTarget) throws -> Bool? {
+        let candidates = try matchingDevices(target: target)
+        var values: [Bool] = []
+        for device in candidates {
+            do {
+                values.append(try systemHapticsEnabled(for: device))
+            } catch let error as AdvancedTrackpadControllerError
+                where target == .all && error.indicatesUnavailableDevice {
+                continue
+            }
+        }
+        guard let first = values.first else {
+            throw AdvancedTrackpadControllerError.noMatchingDevice
+        }
+        return values.dropFirst().allSatisfy { $0 == first } ? first : nil
+    }
+
+    private func systemHapticsEnabled(for device: Device) throws -> Bool {
+        try withActuator(for: device) { actuator in
+            guard let getter = getSystemActuations else {
+                throw AdvancedTrackpadControllerError.unavailable("System haptic feedback")
+            }
+            return getter(actuator)
+        }
+    }
+
     func restoreSystemHaptics(_ snapshot: SystemHapticsSnapshot) -> Bool {
         restoreSystemHapticValues(snapshot.valuesByDevice, devices: scanDevices())
     }
@@ -252,10 +296,14 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         ) ?? true
         let devices = Dictionary(uniqueKeysWithValues: scannedDevices.map { ($0.identifier, $0) })
         var identifiers = managedSystemHapticsDeviceIDs
-        if let target {
-            let targetIdentifiers = Self.identifiers(for: target, in: scannedDevices)
-            guard !targetIdentifiers.isEmpty else { return false }
-            identifiers.formUnion(targetIdentifiers)
+        if identifiers.isEmpty, let target {
+            let recoveryDevices = Self.recoveryDevices(
+                for: target,
+                in: scannedDevices,
+                requiredComposition: requiredComposition
+            )
+            guard !recoveryDevices.isEmpty else { return false }
+            identifiers = Set(recoveryDevices.map(\.identifier))
         }
         var remaining: Set<UInt64> = []
         for identifier in identifiers {
@@ -289,7 +337,13 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         let result = withUnsafeMutablePointer(to: &orientation) { pointer in
             getter(device.pointer, 0xDC, UnsafeMutableRawPointer(pointer), 1, &actualLength)
         }
-        guard result == 0, actualLength == 1, orientation == 0 || orientation == 2 else {
+        guard result == 0 else {
+            throw AdvancedTrackpadControllerError.operationFailed(
+                "Read surface orientation",
+                code: result
+            )
+        }
+        guard actualLength == 1, orientation == 0 || orientation == 2 else {
             throw AdvancedTrackpadControllerError.cannotCaptureRestoreState("Surface orientation")
         }
         return UInt32(orientation)
@@ -353,9 +407,13 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
               let actuator = createActuator(device.identifier) else {
             throw AdvancedTrackpadControllerError.cannotOpenActuator
         }
-        guard openActuator(actuator, 0) == 0 else {
+        let openResult = openActuator(actuator, 0)
+        guard openResult == 0 else {
             Unmanaged<AnyObject>.fromOpaque(actuator).release()
-            throw AdvancedTrackpadControllerError.cannotOpenActuator
+            throw AdvancedTrackpadControllerError.operationFailed(
+                "Open trackpad actuator",
+                code: openResult
+            )
         }
         defer {
             _ = closeActuator(actuator)
@@ -381,11 +439,15 @@ final class AdvancedTrackpadController: AdvancedTrackpadControlling {
         }
     }
 
-    private static func identifiers(
+    private static func recoveryDevices(
         for target: HapticDeviceTarget,
-        in devices: [Device]
-    ) -> Set<UInt64> {
-        Set(Self.devices(for: target, in: devices).map(\.identifier))
+        in devices: [Device],
+        requiredComposition: AdvancedTrackpadDeviceComposition?
+    ) -> [Device] {
+        let matching = Self.devices(for: target, in: devices)
+        guard let requiredComposition else { return matching }
+        return Array(matching.lazy.filter(\.isBuiltIn).prefix(requiredComposition.builtInCount))
+            + Array(matching.lazy.filter { !$0.isBuiltIn }.prefix(requiredComposition.externalCount))
     }
 
     private static func composition(of devices: [Device]) -> AdvancedTrackpadDeviceComposition {
@@ -438,7 +500,22 @@ enum AdvancedTrackpadControllerError: LocalizedError {
         case .cannotOpenActuator:
             "The selected trackpad actuator could not be opened."
         case .operationFailed(let feature, let code):
-            "\(feature) failed with IOKit result 0x\(String(format: "%08X", UInt32(bitPattern: code)))."
+            if code == kIOReturnNoDevice {
+                "\(feature) could not reach the selected trackpad (IOKit 0x\(String(format: "%08X", UInt32(bitPattern: code)))). It may be disconnected or unavailable while the Mac lid is closed."
+            } else {
+                "\(feature) failed with IOKit result 0x\(String(format: "%08X", UInt32(bitPattern: code)))."
+            }
+        }
+    }
+
+    var indicatesUnavailableDevice: Bool {
+        switch self {
+        case .noMatchingDevice, .cannotOpenActuator, .cannotCaptureRestoreState:
+            true
+        case .operationFailed(_, let code):
+            code == kIOReturnNoDevice || code == kIOReturnNotAttached || code == kIOReturnNotReady
+        case .unavailable:
+            false
         }
     }
 }
