@@ -4,6 +4,10 @@ All notable changes to Trackpad Wizard are documented here.
 
 Each release heading is the source of truth for both Apple bundle values: the marketing version and its monotonically increasing build number.
 
+## Version 0.3.1 (Build 5) - 2026-09-11
+
+- 同步远端最新提交并完成版本发版流程（版本号与构建号递增）。
+
 ## Version 0.3.0 (Build 4) - 2026-08-31
 
 - Preserved the user’s existing macOS system-haptic setting when its experimental flag is disabled without an active Trackpad Wizard override, and skipped unavailable devices such as an internal trackpad behind a closed lid when an All Trackpads operation can continue safely.
